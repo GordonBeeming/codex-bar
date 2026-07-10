@@ -14,11 +14,18 @@ enum MenuBarIconRenderer {
     static let lightFlameColor = NSColor.systemOrange
 
     static func image(percent: Int?, severity: Severity, flameColor: NSColor?) -> NSImage {
-        let configuration = NSImage.SymbolConfiguration(pointSize: 12, weight: .medium)
-        let symbol = NSImage(
+        let configuration = NSImage.SymbolConfiguration(pointSize: 13, weight: .medium)
+        let baseSymbol = NSImage(
+            systemSymbolName: "apple.intelligence",
+            accessibilityDescription: "Codex usage"
+        ) ?? NSImage(
+            systemSymbolName: "circle.hexagongrid.fill",
+            accessibilityDescription: "Codex usage"
+        ) ?? NSImage(
             systemSymbolName: "chevron.left.forwardslash.chevron.right",
             accessibilityDescription: "Codex usage"
-        )?.withSymbolConfiguration(configuration)
+        )
+        let symbol = baseSymbol?.withSymbolConfiguration(configuration)
 
         let flameSymbol = (percent != nil ? flameColor : nil).flatMap { flameImage(color: $0) }
         let isTemplate = severity == .normal && flameSymbol == nil
