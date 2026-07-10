@@ -52,3 +52,4 @@ The release job uses the `prod` environment with these secrets:
 - `APPLE_TEAM_ID`
 - `APPLE_APP_PASSWORD`
 - `HOMEBREW_TAP_DEPLOY_KEY`
+- `COMMIT_SIGNING_KEY`
