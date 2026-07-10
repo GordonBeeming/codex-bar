@@ -53,7 +53,7 @@ struct LimitRowView: View {
                     Rectangle()
                         .fill(Color.primary.opacity(0.6))
                         .frame(width: markerWidth)
-                        .offset(x: markerOffset(pace: pace, width: width))
+                        .padding(.leading, markerOffset(pace: pace, width: width))
                 }
             }
         }

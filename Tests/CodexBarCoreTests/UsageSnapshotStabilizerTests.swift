@@ -52,6 +52,30 @@ final class UsageSnapshotStabilizerTests: XCTestCase {
         XCTAssertEqual(stabilizer.evaluate(corrected), .accepted(corrected))
     }
 
+    func testDuplicateLimitIDsDoNotCrashRegressionChecks() {
+        var stabilizer = UsageSnapshotStabilizer()
+        let trusted = limits(primary: 84, secondary: 13)
+        let duplicateTrusted = trusted + [trusted[0]]
+        let regressed = limits(primary: 5, secondary: 1, resetShift: 136)
+        let duplicateRegression = regressed + [regressed[0]]
+
+        XCTAssertEqual(stabilizer.evaluate(duplicateTrusted), .accepted(duplicateTrusted))
+        XCTAssertEqual(stabilizer.evaluate(duplicateRegression), .held(confirmations: 1, required: 3))
+        XCTAssertEqual(stabilizer.evaluate(duplicateRegression), .held(confirmations: 2, required: 3))
+    }
+
+    func testPlanChangeAcceptsNewUsageImmediately() {
+        var stabilizer = UsageSnapshotStabilizer()
+        let exhausted = limits(primary: 100, secondary: 17)
+        let upgraded = limits(primary: 0, secondary: 0, resetShift: 136)
+
+        XCTAssertEqual(stabilizer.evaluate(exhausted, planType: "plus"), .accepted(exhausted))
+        XCTAssertEqual(
+            stabilizer.evaluate(upgraded, planType: "prolite"),
+            .acceptedPlanChange(upgraded)
+        )
+    }
+
     private func limits(
         primary: Double,
         secondary: Double,

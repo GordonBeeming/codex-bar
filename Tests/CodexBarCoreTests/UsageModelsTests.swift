@@ -83,4 +83,20 @@ final class UsageModelsTests: XCTestCase {
 
         XCTAssertEqual(limits.map(\.percent), [100, 0])
     }
+
+    func testDefaultSeverityUsesDefaultThresholds() {
+        XCTAssertEqual(limit(percent: 74).defaultSeverity, .normal)
+        XCTAssertEqual(limit(percent: 75).defaultSeverity, .warning)
+        XCTAssertEqual(limit(percent: 90).defaultSeverity, .critical)
+    }
+
+    private func limit(percent: Double) -> UsageLimit {
+        UsageLimit(
+            id: "codex.primary",
+            name: "Session (5h)",
+            percent: percent,
+            resetsAt: nil,
+            windowDurationMinutes: 300
+        )
+    }
 }

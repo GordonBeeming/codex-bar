@@ -76,6 +76,7 @@ struct CodexAppServerClient: Sendable {
             }
         }
         DispatchQueue.global(qos: .utility).asyncAfter(deadline: .now() + 15, execute: timeout)
+        defer { timeout.cancel() }
 
         let initialize: [String: Any] = [
             "method": "initialize",
@@ -92,7 +93,6 @@ struct CodexAppServerClient: Sendable {
 
         var response = Data()
         guard read(until: [0], from: output.fileHandleForReading, into: &response) else {
-            timeout.cancel()
             throw CodexClientError.processFailed
         }
 
@@ -106,14 +106,12 @@ struct CodexAppServerClient: Sendable {
         )
 
         guard read(until: [1, 2], from: output.fileHandleForReading, into: &response) else {
-            timeout.cancel()
             throw CodexClientError.processFailed
         }
 
         try input.fileHandleForWriting.close()
         response.append(output.fileHandleForReading.readDataToEndOfFile())
         process.waitUntilExit()
-        timeout.cancel()
 
         guard process.terminationStatus == 0 || !response.isEmpty else {
             throw CodexClientError.processFailed
@@ -126,7 +124,7 @@ struct CodexAppServerClient: Sendable {
             data.append(try JSONSerialization.data(withJSONObject: message))
             data.append(0x0A)
         }
-        handle.write(request)
+        try handle.write(contentsOf: request)
     }
 
     private static func read(

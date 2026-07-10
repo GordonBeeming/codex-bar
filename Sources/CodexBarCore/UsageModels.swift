@@ -31,7 +31,7 @@ public struct UsageLimit: Identifiable, Sendable, Equatable {
         self.windowDurationMinutes = windowDurationMinutes
     }
 
-    public var severity: Severity {
+    public var defaultSeverity: Severity {
         if percent >= 90 {
             return .critical
         }
@@ -207,11 +207,7 @@ public enum UsageLimitMapper {
     }
 
     private static func humanize(_ value: String) -> String {
-        value
-            .replacingOccurrences(of: "_", with: " ")
-            .split(separator: " ")
-            .map { $0.prefix(1).uppercased() + $0.dropFirst() }
-            .joined(separator: " ")
+        value.replacingOccurrences(of: "_", with: " ").localizedCapitalized
     }
 }
 
