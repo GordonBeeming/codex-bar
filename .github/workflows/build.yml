@@ -131,15 +131,19 @@ jobs:
       - name: Update Homebrew tap
         env:
           HOMEBREW_TAP_DEPLOY_KEY: ${{ secrets.HOMEBREW_TAP_DEPLOY_KEY }}
+          COMMIT_SIGNING_KEY: ${{ secrets.COMMIT_SIGNING_KEY }}
         run: |
           test -n "${HOMEBREW_TAP_DEPLOY_KEY}" || { echo "HOMEBREW_TAP_DEPLOY_KEY is not set in the prod environment." >&2; exit 1; }
+          test -n "${COMMIT_SIGNING_KEY}" || { echo "COMMIT_SIGNING_KEY is not set in the prod environment." >&2; exit 1; }
 
           DMG_PATH="dist/CodexBar-${VERSION}.dmg"
           DMG_SHA256="$(shasum -a 256 "${DMG_PATH}" | awk '{print $1}')"
 
           mkdir -p ~/.ssh
           printf '%s\n' "${HOMEBREW_TAP_DEPLOY_KEY}" > ~/.ssh/homebrew_tap_key
+          printf '%s\n' "${COMMIT_SIGNING_KEY}" > ~/.ssh/commit_signing_key
           chmod 600 ~/.ssh/homebrew_tap_key
+          chmod 600 ~/.ssh/commit_signing_key
           ssh-keyscan github.com >> ~/.ssh/known_hosts 2>/dev/null
           export GIT_SSH_COMMAND="ssh -i ~/.ssh/homebrew_tap_key -o IdentitiesOnly=yes"
 
@@ -168,10 +172,17 @@ jobs:
           sed -i '' 's/^          //' /tmp/homebrew-tap/Casks/codex-bar.rb
 
           cd /tmp/homebrew-tap
-          git config user.name "github-actions[bot]"
-          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git config user.name "Gordon Beeming"
+          git config user.email "me@gordonbeeming.com"
+          git config gpg.format ssh
+          git config user.signingkey ~/.ssh/commit_signing_key
+          git config commit.gpgsign true
           git add Casks/codex-bar.rb
-          git commit -m "Update codex-bar to ${VERSION}" || echo "No changes to commit"
+          if git diff --cached --quiet; then
+            echo "No Homebrew cask changes to commit"
+          else
+            git commit -S -m "Update codex-bar to ${VERSION}"
+          fi
           git push
 
-          rm -f ~/.ssh/homebrew_tap_key
+          rm -f ~/.ssh/homebrew_tap_key ~/.ssh/commit_signing_key
