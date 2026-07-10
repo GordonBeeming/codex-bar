@@ -3,6 +3,7 @@ import Foundation
 public struct UsageSnapshotStabilizer: Sendable {
     public enum Decision: Sendable, Equatable {
         case accepted([UsageLimit])
+        case acceptedPlanChange([UsageLimit])
         case held(confirmations: Int, required: Int)
     }
 
@@ -14,6 +15,7 @@ public struct UsageSnapshotStabilizer: Sendable {
     private let requiredConsecutiveSamples: Int
     private let suspiciousDropPercent: Double
     private var trustedLimits: [UsageLimit]?
+    private var trustedPlanType: String?
     private var pendingRegression: PendingRegression?
 
     public init(requiredConsecutiveSamples: Int = 3, suspiciousDropPercent: Double = 10) {
@@ -21,7 +23,22 @@ public struct UsageSnapshotStabilizer: Sendable {
         self.suspiciousDropPercent = max(suspiciousDropPercent, 1)
     }
 
-    public mutating func evaluate(_ candidate: [UsageLimit]) -> Decision {
+    public mutating func evaluate(_ candidate: [UsageLimit], planType: String? = nil) -> Decision {
+        if
+            let trustedPlanType,
+            let planType,
+            trustedPlanType.caseInsensitiveCompare(planType) != .orderedSame
+        {
+            self.trustedPlanType = planType
+            trustedLimits = candidate
+            pendingRegression = nil
+            return .acceptedPlanChange(candidate)
+        }
+
+        if trustedPlanType == nil {
+            trustedPlanType = planType
+        }
+
         guard let trustedLimits else {
             self.trustedLimits = candidate
             return .accepted(candidate)
@@ -58,7 +75,10 @@ public struct UsageSnapshotStabilizer: Sendable {
         _ candidate: [UsageLimit],
         comparedWith trusted: [UsageLimit]
     ) -> Bool {
-        let trustedByID = Dictionary(uniqueKeysWithValues: trusted.map { ($0.id, $0) })
+        let trustedByID = Dictionary(
+            trusted.map { ($0.id, $0) },
+            uniquingKeysWith: { _, latest in latest }
+        )
 
         return candidate.contains { current in
             guard let previous = trustedByID[current.id] else { return false }
@@ -83,7 +103,10 @@ public struct UsageSnapshotStabilizer: Sendable {
     }
 
     private func hasSameWindows(_ lhs: [UsageLimit], as rhs: [UsageLimit]) -> Bool {
-        let rhsByID = Dictionary(uniqueKeysWithValues: rhs.map { ($0.id, $0) })
+        let rhsByID = Dictionary(
+            rhs.map { ($0.id, $0) },
+            uniquingKeysWith: { _, latest in latest }
+        )
         guard Set(lhs.map(\.id)) == Set(rhsByID.keys) else { return false }
 
         return lhs.allSatisfy { current in

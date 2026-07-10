@@ -7,39 +7,45 @@ struct UsageMenuView: View {
     var settings: AppSettings
 
     @Environment(\.openSettings) private var openSettings
+    @State private var now = Date()
 
     var body: some View {
-        TimelineView(.periodic(from: .now, by: 1)) { context in
-            VStack(alignment: .leading, spacing: 8) {
-                header(now: context.date)
+        VStack(alignment: .leading, spacing: 8) {
+            header(now: now)
 
-                if let lastError = model.lastError {
-                    Text(lastError)
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                }
-
-                Divider()
-                rows(now: context.date)
-                Divider()
-
-                HStack {
-                    Button("Settings…") {
-                        NSApp.activate(ignoringOtherApps: true)
-                        openSettings()
-                    }
-                    Spacer()
-                    Button("Quit") {
-                        NSApp.terminate(nil)
-                    }
-                    .keyboardShortcut("q")
-                }
+            if let lastError = model.lastError {
+                Text(lastError)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
             }
-            .padding()
-            .frame(width: 320)
+
+            Divider()
+            rows(now: now)
+            Divider()
+
+            HStack {
+                Button("Settings…") {
+                    NSApp.activate(ignoringOtherApps: true)
+                    openSettings()
+                }
+                Spacer()
+                Button("Quit") {
+                    NSApp.terminate(nil)
+                }
+                .keyboardShortcut("q")
+            }
         }
+        .padding()
+        .frame(width: 320)
         .onAppear {
+            now = Date()
             model.refreshIfStale()
+        }
+        .task {
+            while !Task.isCancelled {
+                guard (try? await Task.sleep(for: .seconds(1))) != nil else { break }
+                now = Date()
+            }
         }
     }
 

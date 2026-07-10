@@ -31,7 +31,7 @@ public struct UsageLimit: Identifiable, Sendable, Equatable {
         self.windowDurationMinutes = windowDurationMinutes
     }
 
-    public var severity: Severity {
+    public var defaultSeverity: Severity {
         if percent >= 90 {
             return .critical
         }

@@ -51,7 +51,8 @@ final class UsageViewModel {
 
         pollTask = Task { [weak self] in
             while !Task.isCancelled {
-                await self?.refresh()
+                guard let self else { break }
+                await self.refresh()
                 try? await Task.sleep(for: .seconds(60))
             }
         }
@@ -68,10 +69,15 @@ final class UsageViewModel {
             lastUpdated = Date()
             lastError = nil
 
-            switch snapshotStabilizer.evaluate(snapshot.limits) {
+            switch snapshotStabilizer.evaluate(snapshot.limits, planType: snapshot.planType) {
             case let .accepted(trustedLimits):
                 limits = trustedLimits
                 processCelebrations(for: trustedLimits, now: Date())
+            case let .acceptedPlanChange(trustedLimits):
+                limits = trustedLimits
+                hasSeededCelebrations = false
+                processCelebrations(for: trustedLimits, now: Date())
+                logger.notice("accepted usage immediately because the Codex plan changed")
             case let .held(confirmations, required):
                 logger.notice(
                     "held suspicious usage regression pending confirmation (\(confirmations, privacy: .public)/\(required, privacy: .public))"
@@ -100,7 +106,7 @@ final class UsageViewModel {
 
     private func processCelebrations(for limits: [UsageLimit], now: Date) {
         let snapshots = Dictionary(
-            uniqueKeysWithValues: limits.map { limit in
+            limits.map { limit in
                 (
                     limit.celebrationKey,
                     LimitSnapshot(
@@ -108,7 +114,8 @@ final class UsageViewModel {
                         overPace: UsageWindow.isAheadOfPace(for: limit, now: now)
                     )
                 )
-            }
+            },
+            uniquingKeysWith: { _, latest in latest }
         )
         defer { previousSnapshots = snapshots }
 
