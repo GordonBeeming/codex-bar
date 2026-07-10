@@ -22,6 +22,12 @@ That's the whole app. No cost tracking, charts, token copying, account switching
 
 > Looking for the same simple menu bar experience for Claude? See [ClaudeBar](https://github.com/GordonBeeming/claude-bar).
 
+## Preview
+
+<div align="center">
+  <img src="docs/screenshot.png" width="720" alt="CodexBar menu showing usage limits" loading="lazy" />
+</div>
+
 ## Install
 
 ```sh
