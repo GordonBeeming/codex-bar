@@ -30,7 +30,7 @@ struct LimitRowView: View {
             }
 
             if UsageWindow.isAheadOfPace(for: limit, now: now) {
-                Text("Ahead of pace")
+                Text("🔥 Ahead of pace")
                     .font(.caption)
                     .foregroundStyle(.secondary)
             }
