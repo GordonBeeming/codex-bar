@@ -16,6 +16,8 @@ CodexBar shows your Codex plan limits in the menu bar—the same session and wee
 
 That's the whole app. No cost tracking, charts, token copying, account switching, or provider abstraction.
 
+> Looking for the same simple menu bar experience for Claude? See [ClaudeBar](https://github.com/GordonBeeming/claude-bar).
+
 ## Install
 
 ```sh
