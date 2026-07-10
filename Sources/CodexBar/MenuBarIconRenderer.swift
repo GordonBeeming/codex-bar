@@ -6,7 +6,8 @@ import SwiftUI
 enum MenuBarIconRenderer {
     private static let height: CGFloat = 18
     static let strongFlameColor = NSColor(name: nil) { appearance in
-        if appearance.bestMatch(from: [.darkAqua, .vibrantDark]) != nil {
+        let match = appearance.bestMatch(from: [.aqua, .darkAqua, .vibrantLight, .vibrantDark])
+        if match == .darkAqua || match == .vibrantDark {
             return NSColor(srgbRed: 0.95, green: 0.26, blue: 0.21, alpha: 1)
         }
         return NSColor(srgbRed: 0.75, green: 0.12, blue: 0.12, alpha: 1)
