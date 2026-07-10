@@ -17,11 +17,11 @@ swift build --build-tests
 swift test --parallel
 ```
 
-The Makefile provides the shorter equivalents used during local work:
+The Makefile also provides a release build target and a standard test target:
 
 ```sh
-make build
-make test
+make build  # swift build -c release
+make test   # swift test
 ```
 
 ## Run and install
@@ -52,7 +52,7 @@ make bundle
 You can override the bundle metadata and signing options when packaging:
 
 ```sh
-make bundle VERSION=0.3 BUILD=42 CODESIGN_IDENTITY="Developer ID Application: …" CODESIGN_OPTS="--options runtime --timestamp"
+make bundle VERSION=0.3 BUILD=42 CODESIGN_IDENTITY="Developer ID Application: YOUR_NAME (TEAM_ID)" CODESIGN_OPTS="--options runtime --timestamp"
 ```
 
 ## Project structure
