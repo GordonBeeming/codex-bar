@@ -15,18 +15,7 @@ enum MenuBarIconRenderer {
     static let lightFlameColor = NSColor.systemOrange
 
     static func image(percent: Int?, severity: Severity, flameColor: NSColor?) -> NSImage {
-        let configuration = NSImage.SymbolConfiguration(pointSize: 13, weight: .medium)
-        let baseSymbol = NSImage(
-            systemSymbolName: "apple.intelligence",
-            accessibilityDescription: "Codex usage"
-        ) ?? NSImage(
-            systemSymbolName: "circle.hexagongrid.fill",
-            accessibilityDescription: "Codex usage"
-        ) ?? NSImage(
-            systemSymbolName: "chevron.left.forwardslash.chevron.right",
-            accessibilityDescription: "Codex usage"
-        )
-        let symbol = baseSymbol?.withSymbolConfiguration(configuration)
+        let symbol: NSImage? = codexRosette()
 
         let flameSymbol = (percent != nil ? flameColor : nil).flatMap { flameImage(color: $0) }
         let isTemplate = severity == .normal && flameSymbol == nil
@@ -68,6 +57,35 @@ enum MenuBarIconRenderer {
             return true
         }
         image.isTemplate = isTemplate
+        return image
+    }
+
+    private static func codexRosette() -> NSImage {
+        let size = NSSize(width: 16, height: 16)
+        let image = NSImage(size: size, flipped: false) { _ in
+            NSColor.black.setStroke()
+
+            let center = NSPoint(x: size.width / 2, y: size.height / 2)
+            for index in 0..<6 {
+                NSGraphicsContext.saveGraphicsState()
+                let transform = NSAffineTransform()
+                transform.translateX(by: center.x, yBy: center.y)
+                transform.rotate(byDegrees: CGFloat(index) * 60)
+                transform.translateX(by: -center.x, yBy: -center.y)
+                transform.concat()
+
+                let loop = NSBezierPath(
+                    roundedRect: NSRect(x: 6.1, y: 7.2, width: 3.8, height: 7),
+                    xRadius: 1.9,
+                    yRadius: 1.9
+                )
+                loop.lineWidth = 1.35
+                loop.stroke()
+                NSGraphicsContext.restoreGraphicsState()
+            }
+            return true
+        }
+        image.isTemplate = true
         return image
     }
 
