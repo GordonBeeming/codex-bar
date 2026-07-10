@@ -24,9 +24,9 @@ That's the whole app. No cost tracking, charts, token copying, account switching
 
 ## Preview
 
-<p align="center">
-  <img src="docs/screenshot.png" width="720" alt="CodexBar menu showing usage limits" />
-</p>
+<div align="center">
+  <img src="docs/screenshot.png" width="720" alt="CodexBar menu showing usage limits" loading="lazy" />
+</div>
 
 ## Install
 
