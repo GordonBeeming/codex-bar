@@ -2,6 +2,9 @@ import CodexBarCore
 import SwiftUI
 
 struct LimitRowView: View {
+    private static let aheadOfPaceText = "🔥 Ahead of pace"
+    private static let aheadOfPaceAccessibilityLabel = "Ahead of pace"
+
     let limit: UsageLimit
     let now: Date
     let severity: Severity
@@ -30,9 +33,10 @@ struct LimitRowView: View {
             }
 
             if UsageWindow.isAheadOfPace(for: limit, now: now) {
-                Text("🔥 Ahead of pace")
+                Text(Self.aheadOfPaceText)
                     .font(.caption)
                     .foregroundStyle(.secondary)
+                    .accessibilityLabel(Self.aheadOfPaceAccessibilityLabel)
             }
         }
     }
