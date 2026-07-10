@@ -207,7 +207,11 @@ public enum UsageLimitMapper {
     }
 
     private static func humanize(_ value: String) -> String {
-        value.replacingOccurrences(of: "_", with: " ").localizedCapitalized
+        value
+            .replacingOccurrences(of: "_", with: " ")
+            .split(separator: " ")
+            .map { $0.prefix(1).uppercased() + $0.dropFirst() }
+            .joined(separator: " ")
     }
 }
 

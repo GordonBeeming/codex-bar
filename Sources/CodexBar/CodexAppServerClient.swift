@@ -76,7 +76,12 @@ struct CodexAppServerClient: Sendable {
             }
         }
         DispatchQueue.global(qos: .utility).asyncAfter(deadline: .now() + 15, execute: timeout)
-        defer { timeout.cancel() }
+        defer {
+            timeout.cancel()
+            if process.isRunning {
+                process.terminate()
+            }
+        }
 
         let initialize: [String: Any] = [
             "method": "initialize",

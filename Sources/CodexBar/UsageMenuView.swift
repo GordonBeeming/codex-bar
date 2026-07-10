@@ -8,7 +8,6 @@ struct UsageMenuView: View {
 
     @Environment(\.openSettings) private var openSettings
     @State private var now = Date()
-    @State private var isVisible = false
 
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
@@ -40,17 +39,11 @@ struct UsageMenuView: View {
         .frame(width: 320)
         .onAppear {
             now = Date()
-            isVisible = true
             model.refreshIfStale()
         }
-        .onDisappear {
-            isVisible = false
-        }
-        .task(id: isVisible) {
-            guard isVisible else { return }
+        .task {
             while !Task.isCancelled {
-                try? await Task.sleep(for: .seconds(1))
-                guard !Task.isCancelled else { break }
+                guard (try? await Task.sleep(for: .seconds(1))) != nil else { break }
                 now = Date()
             }
         }
