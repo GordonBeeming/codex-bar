@@ -1,3 +1,7 @@
+<p align="center">
+  <img src="docs/icon.png" width="128" alt="CodexBar icon" />
+</p>
+
 <h1 align="center">CodexBar</h1>
 
 <p align="center">
