@@ -64,6 +64,9 @@ struct CodexAppServerClient: Sendable {
 
         process.executableURL = executable
         process.arguments = ["app-server", "--stdio"]
+        var environment = ProcessInfo.processInfo.environment
+        environment["PATH"] = "\(executable.deletingLastPathComponent().path):\(environment["PATH"] ?? "")"
+        process.environment = environment
         process.standardInput = input
         process.standardOutput = output
         process.standardError = FileHandle.nullDevice
