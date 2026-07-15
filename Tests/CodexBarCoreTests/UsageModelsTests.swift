@@ -73,7 +73,7 @@ final class UsageModelsTests: XCTestCase {
         let resetsAt = now.addingTimeInterval(300 * 60)
 
         XCTAssertFalse(UsageWindow.isAheadOfPace(for: limit(percent: 5, resetsAt: resetsAt), now: now))
-        XCTAssertTrue(UsageWindow.isAheadOfPace(for: limit(percent: 6, resetsAt: resetsAt), now: now))
+        XCTAssertTrue(UsageWindow.isAheadOfPace(for: limit(percent: 5.1, resetsAt: resetsAt), now: now))
     }
 
     func testClampsServerPercent() {
