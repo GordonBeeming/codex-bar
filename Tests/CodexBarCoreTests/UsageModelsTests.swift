@@ -68,6 +68,14 @@ final class UsageModelsTests: XCTestCase {
         XCTAssertTrue(UsageWindow.isAheadOfPace(for: limit, now: now))
     }
 
+    func testAheadOfPaceStartsAboveFivePercent() {
+        let now = Date(timeIntervalSince1970: 0)
+        let resetsAt = now.addingTimeInterval(300 * 60)
+
+        XCTAssertFalse(UsageWindow.isAheadOfPace(for: limit(percent: 5, resetsAt: resetsAt), now: now))
+        XCTAssertTrue(UsageWindow.isAheadOfPace(for: limit(percent: 6, resetsAt: resetsAt), now: now))
+    }
+
     func testClampsServerPercent() {
         let bucket = RateLimitBucket(
             limitId: "codex",
@@ -90,12 +98,12 @@ final class UsageModelsTests: XCTestCase {
         XCTAssertEqual(limit(percent: 90).defaultSeverity, .critical)
     }
 
-    private func limit(percent: Double) -> UsageLimit {
+    private func limit(percent: Double, resetsAt: Date? = nil) -> UsageLimit {
         UsageLimit(
             id: "codex.primary",
             name: "Session (5h)",
             percent: percent,
-            resetsAt: nil,
+            resetsAt: resetsAt,
             windowDurationMinutes: 300
         )
     }
