@@ -47,7 +47,7 @@ public enum CelebrationTrigger: String, CaseIterable, Sendable {
 }
 
 public struct LimitSnapshot: Sendable {
-    private static let rearmBufferPercent = 1.0
+    private static let rearmBufferPercentagePoints = 1.0
 
     public let percent: Double
     public let overPaceLatched: Bool
@@ -62,15 +62,15 @@ public struct LimitSnapshot: Sendable {
             $0.percent - limit.percent > resetDropThreshold && limit.percent < resetFloor
         } ?? false
         let isOverPace = UsageWindow.isAheadOfPace(for: limit, now: now)
-        let isClearlyUnderPace = !UsageWindow.isAheadOfPace(
+        let isWithinRearmBuffer = UsageWindow.isAheadOfPace(
             for: limit,
             now: now,
-            marginPercent: -rearmBufferPercent
+            marginPercent: -rearmBufferPercentagePoints
         )
         return Self(
             percent: limit.percent,
             overPaceLatched: isOverPace
-                || (!didReset && !isClearlyUnderPace && previous?.overPaceLatched == true)
+                || (!didReset && isWithinRearmBuffer && previous?.overPaceLatched == true)
         )
     }
 }

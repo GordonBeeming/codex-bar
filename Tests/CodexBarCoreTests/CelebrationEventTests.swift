@@ -23,6 +23,23 @@ final class CelebrationEventTests: XCTestCase {
         )
     }
 
+    func testWeeklyResetCanAlsoFireOverPace() {
+        let now = Date(timeIntervalSince1970: 5_000)
+        let current = UsageLimit(
+            id: "codex.secondary",
+            name: "Weekly",
+            percent: 9,
+            resetsAt: now.addingTimeInterval(10_080 * 60),
+            windowDurationMinutes: 10_080
+        )
+        let previous = [current.id: LimitSnapshot(percent: 80, overPaceLatched: true)]
+
+        XCTAssertEqual(
+            detectCelebrationEvents(previous: previous, current: [current], now: now),
+            [.weeklyReset, .overWeeklyPace]
+        )
+    }
+
     func testWeeklyOverPaceFiresOnlyOnRisingEdge() {
         let now = Date(timeIntervalSince1970: 5_000)
         let current = UsageLimit(
@@ -58,12 +75,13 @@ final class CelebrationEventTests: XCTestCase {
         )
 
         let first = LimitSnapshot.next(after: nil, for: current, now: now)
+        let nearBoundaryTime = now.addingTimeInterval(duration * 0.105) // 0.5 points under pace.
         let nearBoundary = LimitSnapshot.next(
             after: first,
             for: current,
-            now: now.addingTimeInterval(duration * 0.105)
+            now: nearBoundaryTime
         )
-        let clearlyUnderTime = now.addingTimeInterval(duration * 0.12)
+        let clearlyUnderTime = now.addingTimeInterval(duration * 0.12) // 2 points under pace.
         let clearlyUnder = LimitSnapshot.next(
             after: nearBoundary,
             for: current,
