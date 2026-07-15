@@ -235,6 +235,7 @@ public enum UsageWindow {
         now: Date = Date(),
         marginPercent: Double = 0
     ) -> Bool {
+        guard limit.percent > 5 else { return false }
         guard let pace = paceFraction(for: limit, now: now) else { return false }
         let tolerance = 0.0001
         return limit.percent - pace * 100 > marginPercent + tolerance
