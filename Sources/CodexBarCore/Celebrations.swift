@@ -47,12 +47,31 @@ public enum CelebrationTrigger: String, CaseIterable, Sendable {
 }
 
 public struct LimitSnapshot: Sendable {
-    public let percent: Double
-    public let overPace: Bool
+    private static let rearmBufferPercent = 1.0
 
-    public init(percent: Double, overPace: Bool) {
+    public let percent: Double
+    public let overPaceLatched: Bool
+
+    public init(percent: Double, overPaceLatched: Bool) {
         self.percent = percent
-        self.overPace = overPace
+        self.overPaceLatched = overPaceLatched
+    }
+
+    public static func next(after previous: Self?, for limit: UsageLimit, now: Date) -> Self {
+        let didReset = previous.map {
+            $0.percent - limit.percent > resetDropThreshold && limit.percent < resetFloor
+        } ?? false
+        let isOverPace = UsageWindow.isAheadOfPace(for: limit, now: now)
+        let isClearlyUnderPace = !UsageWindow.isAheadOfPace(
+            for: limit,
+            now: now,
+            marginPercent: -rearmBufferPercent
+        )
+        return Self(
+            percent: limit.percent,
+            overPaceLatched: isOverPace
+                || (!didReset && !isClearlyUnderPace && previous?.overPaceLatched == true)
+        )
     }
 }
 
@@ -69,7 +88,8 @@ public func detectCelebrationEvents(
     for limit in current {
         guard let prior = previous[limit.celebrationKey] else { continue }
 
-        if prior.percent - limit.percent > resetDropThreshold, limit.percent < resetFloor {
+        let didReset = prior.percent - limit.percent > resetDropThreshold && limit.percent < resetFloor
+        if didReset {
             switch limit.group {
             case "session": fired.insert(.sessionReset)
             case "weekly": fired.insert(.weeklyReset)
@@ -79,7 +99,7 @@ public func detectCelebrationEvents(
 
         if limit.group == "weekly" {
             let isOverPace = UsageWindow.isAheadOfPace(for: limit, now: now)
-            if isOverPace, !prior.overPace {
+            if isOverPace, didReset || !prior.overPaceLatched {
                 fired.insert(.overWeeklyPace)
             }
         }

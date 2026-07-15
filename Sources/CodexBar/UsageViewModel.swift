@@ -109,9 +109,10 @@ final class UsageViewModel {
             limits.map { limit in
                 (
                     limit.celebrationKey,
-                    LimitSnapshot(
-                        percent: limit.percent,
-                        overPace: UsageWindow.isAheadOfPace(for: limit, now: now)
+                    LimitSnapshot.next(
+                        after: hasSeededCelebrations ? previousSnapshots[limit.celebrationKey] : nil,
+                        for: limit,
+                        now: now
                     )
                 )
             },
