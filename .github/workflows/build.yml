@@ -98,12 +98,19 @@ jobs:
           APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
           APPLE_APP_PASSWORD: ${{ secrets.APPLE_APP_PASSWORD }}
         run: |
+          test -n "${APPLE_ID}" || { echo "APPLE_ID is not set in the prod environment." >&2; exit 1; }
+          test -n "${APPLE_TEAM_ID}" || { echo "APPLE_TEAM_ID is not set in the prod environment." >&2; exit 1; }
+          test -n "${APPLE_APP_PASSWORD}" || { echo "APPLE_APP_PASSWORD is not set in the prod environment." >&2; exit 1; }
+
+          xcrun notarytool store-credentials "notarytool-profile" \
+            --apple-id "${APPLE_ID}" \
+            --team-id "${APPLE_TEAM_ID}" \
+            --password "${APPLE_APP_PASSWORD}"
+
           ditto -c -k --keepParent dist/CodexBar.app dist/CodexBar-notarize.zip
 
           xcrun notarytool submit dist/CodexBar-notarize.zip \
-            --apple-id "${APPLE_ID}" \
-            --team-id "${APPLE_TEAM_ID}" \
-            --password "${APPLE_APP_PASSWORD}" \
+            --keychain-profile "notarytool-profile" \
             --wait
 
           rm dist/CodexBar-notarize.zip
@@ -121,14 +128,8 @@ jobs:
             "dist/CodexBar-${VERSION}.dmg"
 
       - name: Sign, notarize, and validate DMG
-        env:
-          APPLE_ID: ${{ secrets.APPLE_ID }}
-          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
-          APPLE_APP_PASSWORD: ${{ secrets.APPLE_APP_PASSWORD }}
         run: |
-          test -n "${APPLE_ID}" || { echo "APPLE_ID is not set in the prod environment." >&2; exit 1; }
-          test -n "${APPLE_TEAM_ID}" || { echo "APPLE_TEAM_ID is not set in the prod environment." >&2; exit 1; }
-          test -n "${APPLE_APP_PASSWORD}" || { echo "APPLE_APP_PASSWORD is not set in the prod environment." >&2; exit 1; }
+          test -n "${CODESIGN_IDENTITY}" || { echo "CODESIGN_IDENTITY is not set." >&2; exit 1; }
 
           DMG_PATH="dist/CodexBar-${VERSION}.dmg"
           codesign --force --sign "${CODESIGN_IDENTITY}" \
@@ -138,9 +139,7 @@ jobs:
           codesign --verify --strict --verbose=2 "${DMG_PATH}"
 
           xcrun notarytool submit "${DMG_PATH}" \
-            --apple-id "${APPLE_ID}" \
-            --team-id "${APPLE_TEAM_ID}" \
-            --password "${APPLE_APP_PASSWORD}" \
+            --keychain-profile "notarytool-profile" \
             --wait
 
           xcrun stapler staple "${DMG_PATH}"
