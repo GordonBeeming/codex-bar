@@ -59,7 +59,7 @@ public struct LimitSnapshot: Sendable {
 
     public static func next(after previous: Self?, for limit: UsageLimit, now: Date) -> Self {
         let didReset = previous.map {
-            $0.percent - limit.percent > resetDropThreshold && limit.percent < resetFloor
+            usageDidReset(from: $0.percent, to: limit.percent)
         } ?? false
         let isOverPace = UsageWindow.isAheadOfPace(for: limit, now: now)
         let isWithinRearmBuffer = UsageWindow.isAheadOfPace(
@@ -78,6 +78,11 @@ public struct LimitSnapshot: Sendable {
 public let resetDropThreshold = 25.0
 public let resetFloor = 10.0
 
+private func usageDidReset(from previous: Double, to current: Double) -> Bool {
+    (previous > 0 && current == 0)
+        || (previous - current > resetDropThreshold && current < resetFloor)
+}
+
 public func detectCelebrationEvents(
     previous: [String: LimitSnapshot],
     current: [UsageLimit],
@@ -88,7 +93,7 @@ public func detectCelebrationEvents(
     for limit in current {
         guard let prior = previous[limit.celebrationKey] else { continue }
 
-        let didReset = prior.percent - limit.percent > resetDropThreshold && limit.percent < resetFloor
+        let didReset = usageDidReset(from: prior.percent, to: limit.percent)
         if didReset {
             switch limit.group {
             case "session": fired.insert(.sessionReset)
