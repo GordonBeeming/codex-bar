@@ -3,6 +3,16 @@ import XCTest
 @testable import CodexBarCore
 
 final class CelebrationEventTests: XCTestCase {
+    func testSessionResetFiresOnLargeDrop() {
+        let current = limit(id: "codex.primary", percent: 4, duration: 300)
+        let previous = [current.id: LimitSnapshot(percent: 80, overPaceLatched: true)]
+
+        XCTAssertEqual(
+            detectCelebrationEvents(previous: previous, current: [current], now: .now),
+            [.sessionReset]
+        )
+    }
+
     func testSessionResetFiresWhenLowUsageReturnsToZero() {
         let current = limit(id: "codex.primary", percent: 0, duration: 300)
         let previous = [current.id: LimitSnapshot(percent: 20, overPaceLatched: true)]
@@ -10,6 +20,16 @@ final class CelebrationEventTests: XCTestCase {
         XCTAssertEqual(
             detectCelebrationEvents(previous: previous, current: [current], now: .now),
             [.sessionReset]
+        )
+    }
+
+    func testWeeklyResetFiresOnLargeDrop() {
+        let current = limit(id: "codex.secondary", percent: 2, duration: 10_080)
+        let previous = [current.id: LimitSnapshot(percent: 55, overPaceLatched: true)]
+
+        XCTAssertTrue(
+            detectCelebrationEvents(previous: previous, current: [current], now: .now)
+                .contains(.weeklyReset)
         )
     }
 
