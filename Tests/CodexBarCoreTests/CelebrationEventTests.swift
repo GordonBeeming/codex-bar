@@ -53,6 +53,15 @@ final class CelebrationEventTests: XCTestCase {
         )
     }
 
+    func testUsageReturningToZeroClearsOverPaceLatch() {
+        let current = limit(id: "codex.secondary", percent: 0, duration: 10_080)
+        let previous = LimitSnapshot(percent: 20, overPaceLatched: true)
+
+        XCTAssertFalse(
+            LimitSnapshot.next(after: previous, for: current, now: .now).overPaceLatched
+        )
+    }
+
     func testWeeklyResetCanAlsoFireOverPace() {
         let now = Date(timeIntervalSince1970: 5_000)
         let current = UsageLimit(
