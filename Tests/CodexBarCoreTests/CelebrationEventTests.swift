@@ -13,13 +13,23 @@ final class CelebrationEventTests: XCTestCase {
         )
     }
 
-    func testSessionResetFiresWhenLowUsageReturnsToZero() {
+    func testSessionResetFiresWhenUsageReturnsToZero() {
         let current = limit(id: "codex.primary", percent: 0, duration: 300)
         let previous = [current.id: LimitSnapshot(percent: 20, overPaceLatched: true)]
 
         XCTAssertEqual(
             detectCelebrationEvents(previous: previous, current: [current], now: .now),
             [.sessionReset]
+        )
+    }
+
+    func testSessionResetDoesNotFireOnSmallNonzeroDrop() {
+        let current = limit(id: "codex.primary", percent: 4, duration: 300)
+        let previous = [current.id: LimitSnapshot(percent: 20, overPaceLatched: true)]
+
+        XCTAssertEqual(
+            detectCelebrationEvents(previous: previous, current: [current], now: .now),
+            []
         )
     }
 
@@ -33,7 +43,7 @@ final class CelebrationEventTests: XCTestCase {
         )
     }
 
-    func testWeeklyResetFiresWhenLowUsageReturnsToZero() {
+    func testWeeklyResetFiresWhenUsageReturnsToZero() {
         let current = limit(id: "codex.secondary", percent: 0, duration: 10_080)
         let previous = [current.id: LimitSnapshot(percent: 20, overPaceLatched: true)]
 
