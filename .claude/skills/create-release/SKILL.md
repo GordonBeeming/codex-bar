@@ -10,7 +10,7 @@ Create a new GitHub release for CodexBar. Publishing the release triggers the CI
 ## Steps
 
 1. Pull latest: `but pull`
-2. Confirm nothing is unmerged — this should be empty:
+2. Confirm nothing is unmerged into `main` — this list of open PRs should be empty:
    ```bash
    gh pr list --repo gordonbeeming/codex-bar --state open
    ```
@@ -26,6 +26,7 @@ gh release create v{major}.{minor} \
   --repo gordonbeeming/codex-bar \
   --target main \
   --title "CodexBar v{major}.{minor} — {short description}" \
+  --fail-on-no-commits \
   --notes "$(cat <<'EOF'
 # CodexBar v{major}.{minor} — {short description}
 
@@ -67,7 +68,7 @@ LAST_TAG=$(gh release list --repo gordonbeeming/codex-bar --limit 1 --json tagNa
 git log ${LAST_TAG}..origin/main --oneline
 ```
 
-Run any hand-written notes through the `humanizer:humanizer` skill (Skill tool) before publishing — it strips AI-writing patterns from release-note prose.
+Run any hand-written notes through the `humanizer:humanizer` skill (Skill tool) before publishing — it strips AI-writing patterns from release-note prose. It's a globally-installed Claude Code plugin skill, not a file in this repo, so don't look for it under `.claude/skills/`.
 
 ## Important
 
