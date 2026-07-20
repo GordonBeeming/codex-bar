@@ -68,6 +68,11 @@ LAST_TAG=$(gh release list --repo gordonbeeming/codex-bar --limit 1 --json tagNa
 git log ${LAST_TAG}..origin/main --oneline
 ```
 
+With no prior release, use:
+```bash
+git log origin/main --oneline
+```
+
 Run any hand-written notes through the `humanizer:humanizer` skill (Skill tool) before publishing — it strips AI-writing patterns from release-note prose. It's a globally-installed Claude Code plugin skill, not a file in this repo, so don't look for it under `.claude/skills/`.
 
 ## Important
