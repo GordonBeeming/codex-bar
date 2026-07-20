@@ -57,7 +57,7 @@ EOF
 
 ## Version Format
 
-- Tags: `v{major}.{minor}` (e.g. `v0.4`) — NO patch number; the workflow guard rejects any tag whose (optionally `v`-prefixed) remainder isn't `major.minor`.
+- Tags: `v{major}.{minor}` (e.g. `v0.4`) — NO patch number; the workflow guard rejects any tag whose (optionally `v`-prefixed) remainder isn't `major.minor`. Always use the `v` prefix in practice: the Homebrew cask template hardcodes `.../download/v#{version}/...`, so a tag without it would upload correctly but break the `brew upgrade` download URL.
 - CI sets `CFBundleShortVersionString` to `{major}.{minor}` and `CFBundleVersion` to the run number separately — they're not combined into a single dotted bundle version.
 - The tag `v0.4` with run number 45 sets `CFBundleShortVersionString=0.4` and `CFBundleVersion=45`.
 
