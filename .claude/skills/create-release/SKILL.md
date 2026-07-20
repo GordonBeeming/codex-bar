@@ -20,28 +20,30 @@ Create a new GitHub release for CodexBar. Publishing the release triggers the CI
    ```
 4. Bump the minor version (e.g. v0.3 → v0.4). Never use a patch number in the tag.
 5. Create the release:
-   ```bash
-   gh release create v{major}.{minor} \
-     --repo gordonbeeming/codex-bar \
-     --target main \
-     --title "CodexBar v{major}.{minor} — {short description}" \
-     --notes "$(cat <<'EOF'
-   # CodexBar v{major}.{minor} — {short description}
 
-   ## What's New
+````bash
+gh release create v{major}.{minor} \
+  --repo gordonbeeming/codex-bar \
+  --target main \
+  --title "CodexBar v{major}.{minor} — {short description}" \
+  --notes "$(cat <<'EOF'
+# CodexBar v{major}.{minor} — {short description}
 
-   - {list changes since last release using git log}
+## What's New
 
-   ## Install
+- {list changes since last release using git log}
 
-   ```bash
-   brew upgrade --cask gordonbeeming/tap/codex-bar
-   ```
+## Install
 
-   Or download the DMG from the assets below.
-   EOF
-   )"
-   ```
+```bash
+brew upgrade --cask gordonbeeming/tap/codex-bar
+```
+
+Or download the DMG from the assets below.
+EOF
+)"
+````
+
    Publish it (no `--draft`) — the pipeline runs on `release: published`.
 6. The release pipeline (`.github/workflows/build.yml`) automatically:
    - Build + test
