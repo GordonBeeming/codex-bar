@@ -52,7 +52,7 @@ EOF
    - Create + sign the DMG
    - Upload the DMG asset to the release
    - Update the Homebrew tap cask (`GordonBeeming/homebrew-tap/Casks/codex-bar.rb`)
-7. Watch it finish, then report the release URL + run: `gh run watch`
+7. Watch it finish, then report the release URL + run: `gh run watch --repo gordonbeeming/codex-bar`
 
 ## Version Format
 
@@ -64,10 +64,10 @@ EOF
 
 ```bash
 LAST_TAG=$(gh release list --repo gordonbeeming/codex-bar --limit 1 --json tagName --jq '.[0].tagName')
-git log ${LAST_TAG}..HEAD --oneline
+git log ${LAST_TAG}..origin/main --oneline
 ```
 
-Run any hand-written notes through the humanizer pass before publishing.
+Run any hand-written notes through the `humanizer:humanizer` skill (Skill tool) before publishing — it strips AI-writing patterns from release-note prose.
 
 ## Important
 
@@ -75,4 +75,4 @@ Run any hand-written notes through the humanizer pass before publishing.
 - Always bump the minor version; never use a `.0` patch in tags (v0.4, not v0.4.0).
 - Don't use `--draft` — a draft doesn't fire `release: published`, so CI won't build.
 - The release triggers the full CI pipeline (notarization takes a few minutes) — wait for it to go green before telling anyone to `brew upgrade`.
-- The release event re-runs `build-and-test` (it's not skipped just because the branch already built on every push), and the signing job only starts once that passes — check both jobs' logs with `gh run view --log-failed`. A failure in signing specifically usually means an expired notarization app-password / Developer ID cert in the `prod` environment, or a bad tag.
+- The release event re-runs `build-and-test` (it's not skipped just because the branch already built on every push), and the signing job only starts once that passes — check both jobs' logs with `gh run view --log-failed --repo gordonbeeming/codex-bar`. A failure in signing specifically usually means an expired notarization app-password / Developer ID cert in the `prod` environment, or a bad tag.
