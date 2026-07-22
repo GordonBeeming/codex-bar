@@ -2,6 +2,39 @@ import CodexBarCore
 import Foundation
 import Observation
 
+enum MenuBarPercentageSelection: Hashable {
+    case highest
+    case limit(String)
+
+    private static let highestRawValue = "highest"
+
+    init(rawValue: String?) {
+        guard let rawValue, rawValue != Self.highestRawValue else {
+            self = .highest
+            return
+        }
+        self = .limit(rawValue)
+    }
+
+    var rawValue: String {
+        switch self {
+        case .highest:
+            Self.highestRawValue
+        case let .limit(id):
+            id
+        }
+    }
+
+    var limitID: String? {
+        switch self {
+        case .highest:
+            nil
+        case let .limit(id):
+            id
+        }
+    }
+}
+
 @MainActor
 @Observable
 final class AppSettings {
@@ -9,6 +42,7 @@ final class AppSettings {
         static let useDefaultSeverity = "useDefaultSeverity"
         static let warningThresholdPercent = "warningThresholdPercent"
         static let criticalThresholdPercent = "criticalThresholdPercent"
+        static let menuBarPercentageSelection = "menuBarPercentageSelection"
         static let showMenuBarFlame = "showMenuBarFlame"
         static let celebrationsEnabled = "celebrationsEnabled"
 
@@ -29,6 +63,12 @@ final class AppSettings {
 
     var showMenuBarFlame: Bool {
         didSet { defaults.set(showMenuBarFlame, forKey: Keys.showMenuBarFlame) }
+    }
+
+    var menuBarPercentageSelection: MenuBarPercentageSelection {
+        didSet {
+            defaults.set(menuBarPercentageSelection.rawValue, forKey: Keys.menuBarPercentageSelection)
+        }
     }
 
     var celebrationsEnabled: Bool {
@@ -87,6 +127,7 @@ final class AppSettings {
             Keys.useDefaultSeverity: true,
             Keys.warningThresholdPercent: 75.0,
             Keys.criticalThresholdPercent: 90.0,
+            Keys.menuBarPercentageSelection: MenuBarPercentageSelection.highest.rawValue,
             Keys.showMenuBarFlame: true,
             Keys.celebrationsEnabled: false
         ]
@@ -97,6 +138,9 @@ final class AppSettings {
         defaults.register(defaults: registrations)
 
         useDefaultSeverity = defaults.bool(forKey: Keys.useDefaultSeverity)
+        menuBarPercentageSelection = MenuBarPercentageSelection(
+            rawValue: defaults.string(forKey: Keys.menuBarPercentageSelection)
+        )
         showMenuBarFlame = defaults.bool(forKey: Keys.showMenuBarFlame)
         celebrationsEnabled = defaults.bool(forKey: Keys.celebrationsEnabled)
 

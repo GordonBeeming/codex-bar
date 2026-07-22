@@ -24,10 +24,6 @@ final class UsageViewModel {
     private static let staleThreshold: TimeInterval = 30
     private static let didApplyDefaultLaunchAtLoginKey = "didApplyDefaultLaunchAtLogin"
 
-    var highest: UsageLimit? {
-        limits.max { $0.percent < $1.percent }
-    }
-
     var launchAtLoginAvailable: Bool {
         Bundle.main.bundleURL.pathExtension == "app"
     }

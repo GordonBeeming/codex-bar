@@ -34,6 +34,17 @@ struct SettingsView: View {
             }
 
             Section("Menu bar") {
+                Picker("Percentage", selection: menuBarPercentageSelection) {
+                    Text("Highest").tag(MenuBarPercentageSelection.highest)
+                    ForEach(model.limits) { limit in
+                        Text(limit.name).tag(MenuBarPercentageSelection.limit(limit.id))
+                    }
+                }
+
+                Text("If the selected percentage isn't available, CodexBar shows the highest percentage instead.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+
                 Toggle("Show 🔥 when burning over pace", isOn: $settings.showMenuBarFlame)
 
                 Text("The flame appears next to the percentage when a limit burns faster than its window's steady pace. Weekly turns a deeper red; the five-hour session stays orange.")
@@ -63,6 +74,21 @@ struct SettingsView: View {
         }
         .formStyle(.grouped)
         .frame(width: 380)
+    }
+
+    private var menuBarPercentageSelection: Binding<MenuBarPercentageSelection> {
+        Binding(
+            get: {
+                guard
+                    let selectedID = settings.menuBarPercentageSelection.limitID,
+                    model.limits.contains(where: { $0.id == selectedID })
+                else {
+                    return .highest
+                }
+                return .limit(selectedID)
+            },
+            set: { settings.menuBarPercentageSelection = $0 }
+        )
     }
 
     private func celebrationRow(_ trigger: CelebrationTrigger) -> some View {
