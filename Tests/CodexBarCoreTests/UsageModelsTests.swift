@@ -98,9 +98,40 @@ final class UsageModelsTests: XCTestCase {
         XCTAssertEqual(limit(percent: 90).defaultSeverity, .critical)
     }
 
-    private func limit(percent: Double, resetsAt: Date? = nil) -> UsageLimit {
+    func testMenuBarLimitDefaultsToHighestUsage() {
+        let limits = [
+            limit(id: "codex.primary", percent: 25),
+            limit(id: "codex.secondary", percent: 60)
+        ]
+
+        XCTAssertEqual(menuBarLimit(in: limits, selectedID: nil)?.id, "codex.secondary")
+    }
+
+    func testMenuBarLimitUsesSelectedLimit() {
+        let limits = [
+            limit(id: "codex.primary", percent: 25),
+            limit(id: "codex.secondary", percent: 60)
+        ]
+
+        XCTAssertEqual(menuBarLimit(in: limits, selectedID: "codex.primary")?.id, "codex.primary")
+    }
+
+    func testMenuBarLimitFallsBackToHighestWhenSelectionIsMissing() {
+        let limits = [
+            limit(id: "codex.primary", percent: 25),
+            limit(id: "codex.secondary", percent: 60)
+        ]
+
+        XCTAssertEqual(menuBarLimit(in: limits, selectedID: "codex.review")?.id, "codex.secondary")
+    }
+
+    private func limit(
+        id: String = "codex.primary",
+        percent: Double,
+        resetsAt: Date? = nil
+    ) -> UsageLimit {
         UsageLimit(
-            id: "codex.primary",
+            id: id,
             name: "Session (5h)",
             percent: percent,
             resetsAt: resetsAt,
