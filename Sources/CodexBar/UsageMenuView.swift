@@ -93,7 +93,8 @@ struct UsageMenuView: View {
                 LimitRowView(
                     limit: limit,
                     now: now,
-                    severity: settings.thresholds.resolve(for: limit)
+                    severity: settings.thresholds.resolve(for: limit),
+                    displayMode: settings.usageDisplayMode
                 )
             }
         }
