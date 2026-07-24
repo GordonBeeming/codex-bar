@@ -8,6 +8,7 @@ struct LimitRowView: View {
     let limit: UsageLimit
     let now: Date
     let severity: Severity
+    var displayMode: UsageDisplayMode = .used
 
     private let barHeight: CGFloat = 8
     private let markerWidth: CGFloat = 2
@@ -18,7 +19,7 @@ struct LimitRowView: View {
                 Text(limit.name)
                     .font(.subheadline)
                 Spacer()
-                Text("\(Int(limit.percent.rounded()))%")
+                Text("\(displayedPercent)%")
                     .font(.subheadline.bold())
             }
 
@@ -49,7 +50,7 @@ struct LimitRowView: View {
                     Rectangle().fill(.quaternary)
                     Rectangle()
                         .fill(tintColor)
-                        .frame(width: width * min(max(limit.percent, 0), 100) / 100)
+                        .frame(width: width * displayMode.fillFraction(usedPercent: limit.percent))
                 }
                 .clipShape(Capsule())
 
@@ -57,18 +58,29 @@ struct LimitRowView: View {
                     Rectangle()
                         .fill(Color.primary.opacity(0.6))
                         .frame(width: markerWidth)
-                        .padding(.leading, markerOffset(pace: pace, width: width))
+                        .padding(.leading, markerOffset(
+                            fraction: displayMode.markerFraction(paceFraction: pace), width: width
+                        ))
                 }
             }
         }
         .frame(height: barHeight)
         .accessibilityLabel("Usage")
-        .accessibilityValue("\(Int(limit.percent.rounded())) percent")
+        .accessibilityValue(barAccessibilityValue)
     }
 
-    private func markerOffset(pace: Double, width: CGFloat) -> CGFloat {
+    /// The whole number shown in the row, flipped to fuel remaining in fuel-tank mode.
+    private var displayedPercent: Int {
+        Int(displayMode.displayPercent(usedPercent: limit.percent).rounded())
+    }
+
+    private var barAccessibilityValue: String {
+        displayMode == .fuelTank ? "\(displayedPercent) percent remaining" : "\(displayedPercent) percent"
+    }
+
+    private func markerOffset(fraction: Double, width: CGFloat) -> CGFloat {
         let maximum = max(width - markerWidth, 0)
-        return min(max(width * pace - markerWidth / 2, 0), maximum)
+        return min(max(width * fraction - markerWidth / 2, 0), maximum)
     }
 
     private var tintColor: Color {

@@ -54,6 +54,7 @@ Open **Settings…** from the dropdown:
 
 - **Usage colours** — use the default 75% warning and 90% critical levels, or drag the two splitters to choose your own.
 - **Pace flame** — show a flame beside the menu-bar percentage when usage is ahead of a steady pace through a window.
+- **⛽ Fuel tank mode** — flip every percentage and bar from *used* to *remaining*. Instead of a limit filling from 0 → 100% as you burn through it, it starts full and drains toward empty like a fuel gauge. It's purely cosmetic: colours, the pace flame, and the steady-pace marker still track real usage, so a nearly-empty tank still turns red.
 - **Celebrations** — choose full-screen reactions for session resets, weekly resets, and crossing the weekly pace line, or turn them off individually.
 - **Launch at login** — on by default for an installed app.
 

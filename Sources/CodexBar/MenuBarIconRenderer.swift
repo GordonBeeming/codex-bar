@@ -111,7 +111,9 @@ struct MenuBarLabelView: View {
             selectedID: settings.menuBarPercentageSelection.limitID
         )
         Image(nsImage: MenuBarIconRenderer.image(
-            percent: displayedLimit.map { Int($0.percent.rounded()) },
+            // Percent is flipped to remaining in fuel-tank mode; severity stays keyed to
+            // actual usage, so a nearly-empty tank still reads warning/critical.
+            percent: displayedLimit.map { Int(settings.usageDisplayMode.displayPercent(usedPercent: $0.percent).rounded()) },
             severity: displayedLimit.map { settings.thresholds.resolve(for: $0) } ?? .normal,
             flameColor: flameColor
         ))
