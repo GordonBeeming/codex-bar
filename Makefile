@@ -4,6 +4,12 @@ CODESIGN_IDENTITY ?= $(shell security find-identity -v -p codesigning 2>/dev/nul
 VERSION ?= 0.1.0
 BUILD ?= 1
 CODESIGN_OPTS ?=
+
+# Install over the Homebrew cask's location so a local dev build replaces the
+# installed app instead of creating a second copy. A later `brew upgrade`
+# cleanly overwrites the dev build with the real signed release.
+INSTALL_DIR ?= /Applications
+
 APP_BUNDLE := dist/CodexBar.app
 
 build:
@@ -26,8 +32,10 @@ bundle: build
 	codesign --force --sign "$$IDENT" --identifier com.gordonbeeming.CodexBar $(CODESIGN_OPTS) $(APP_BUNDLE)
 
 install: bundle
-	pkill -f "$$HOME/Applications/CodexBar.app/Contents/MacOS/CodexBar" || true
-	ditto $(APP_BUNDLE) ~/Applications/CodexBar.app
+	pkill -x CodexBar || true
+	ditto $(APP_BUNDLE) $(INSTALL_DIR)/CodexBar.app
+	rm -rf dist
+	@echo "Launch with: open $(INSTALL_DIR)/CodexBar.app"
 
 run:
 	swift run
