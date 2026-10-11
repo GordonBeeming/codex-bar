@@ -4,6 +4,9 @@ import Foundation
 struct UsageSnapshot: Sendable {
     let limits: [UsageLimit]
     let planType: String?
+    let rateLimits: RateLimitsResult
+    let tokenUsage: AccountTokenUsage?
+    let tokenUsageError: String?
 }
 
 enum CodexClientError: Error, LocalizedError {
@@ -26,13 +29,17 @@ enum CodexClientError: Error, LocalizedError {
     }
 }
 
-struct CodexAppServerClient: Sendable {
+protocol UsageFetching: Sendable {
+    func fetchUsage(includeTokenUsage: Bool) async throws -> UsageSnapshot
+}
+
+struct CodexAppServerClient: UsageFetching {
     private let locator = CodexExecutableLocator()
 
-    func fetchUsage() async throws -> UsageSnapshot {
+    func fetchUsage(includeTokenUsage: Bool = false) async throws -> UsageSnapshot {
         let executable = try locator.locate()
         let data = try await Task.detached(priority: .utility) {
-            try Self.runProbe(executable: executable)
+            try Self.runProbe(executable: executable, includeTokenUsage: includeTokenUsage)
         }.value
         let probe = try CodexAppServerResponseParser.parse(data)
 
@@ -53,11 +60,12 @@ struct CodexAppServerClient: Sendable {
 
         return UsageSnapshot(
             limits: limits,
-            planType: UsageLimitMapper.planType(from: rateLimits, account: account)
+            planType: UsageLimitMapper.planType(from: rateLimits, account: account),
+            rateLimits: rateLimits, tokenUsage: probe.tokenUsage, tokenUsageError: probe.tokenUsageError?.message
         )
     }
 
-    private static func runProbe(executable: URL) throws -> Data {
+    private static func runProbe(executable: URL, includeTokenUsage: Bool) throws -> Data {
         let process = Process()
         let input = Pipe()
         let output = Pipe()
@@ -92,6 +100,7 @@ struct CodexAppServerClient: Sendable {
             "method": "initialize",
             "id": 0,
             "params": [
+                "capabilities": ["experimentalApi": includeTokenUsage],
                 "clientInfo": [
                     "name": "codex_bar",
                     "title": "CodexBar",
@@ -106,17 +115,22 @@ struct CodexAppServerClient: Sendable {
             throw CodexClientError.processFailed
         }
 
-        try write(
-            [
-                ["method": "initialized", "params": [:]],
-                ["method": "account/read", "id": 1, "params": ["refreshToken": false]],
-                ["method": "account/rateLimits/read", "id": 2, "params": [:]]
-            ],
-            to: input.fileHandleForWriting
-        )
+        var requests: [[String: Any]] = [
+            ["method": "initialized", "params": [:]],
+            ["method": "account/read", "id": 1, "params": ["refreshToken": false]],
+            ["method": "account/rateLimits/read", "id": 2, "params": [:]]
+        ]
+        if includeTokenUsage { requests.append(["method": "account/usage/read", "id": 3, "params": [:]]) }
+        try write(requests, to: input.fileHandleForWriting)
 
         guard read(until: [1, 2], from: output.fileHandleForReading, into: &response) else {
             throw CodexClientError.processFailed
+        }
+        if includeTokenUsage, !read(until: [3], from: output.fileHandleForReading, into: &response) {
+            let error: [String: Any] = ["id": 3, "error": ["code": -1, "message": "Account token usage request did not complete"]]
+            response.append(0x0A)
+            response.append(try JSONSerialization.data(withJSONObject: error))
+            response.append(0x0A)
         }
 
         try input.fileHandleForWriting.close()

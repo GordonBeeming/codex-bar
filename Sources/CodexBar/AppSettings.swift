@@ -46,6 +46,10 @@ final class AppSettings {
         static let fuelTankMode = "fuelTankMode"
         static let showMenuBarFlame = "showMenuBarFlame"
         static let celebrationsEnabled = "celebrationsEnabled"
+        static let telemetryEnabled = "telemetryEnabled"
+        static let telemetryIntervalMinutes = "telemetryIntervalMinutes"
+        static let telemetryRetentionDays = "telemetryRetentionDays"
+        static let telemetryDirectory = "telemetryDirectory"
 
         static func celebrationEnabled(_ trigger: CelebrationTrigger) -> String {
             "celebration.\(trigger.rawValue).enabled"
@@ -56,7 +60,40 @@ final class AppSettings {
         }
     }
 
-    private let defaults = UserDefaults.standard
+    private let defaults: UserDefaults
+    private var storedTelemetryIntervalMinutes: Int
+    private var storedTelemetryRetentionDays: Int
+
+    var telemetryEnabled: Bool {
+        didSet { defaults.set(telemetryEnabled, forKey: Keys.telemetryEnabled) }
+    }
+
+    var telemetryIntervalMinutes: Int {
+        get { storedTelemetryIntervalMinutes }
+        set {
+            storedTelemetryIntervalMinutes = min(max(newValue, 1), 1_440)
+            defaults.set(storedTelemetryIntervalMinutes, forKey: Keys.telemetryIntervalMinutes)
+        }
+    }
+
+    var telemetryRetentionDays: Int {
+        get { storedTelemetryRetentionDays }
+        set {
+            storedTelemetryRetentionDays = TelemetryConfiguration.normalizedRetentionDays(newValue)
+            defaults.set(storedTelemetryRetentionDays, forKey: Keys.telemetryRetentionDays)
+        }
+    }
+
+    var telemetryDirectory: String {
+        didSet { defaults.set(telemetryDirectory, forKey: Keys.telemetryDirectory) }
+    }
+
+    var telemetryConfiguration: TelemetryConfiguration {
+        TelemetryConfiguration(
+            enabled: telemetryEnabled, intervalMinutes: telemetryIntervalMinutes,
+            retentionDays: telemetryRetentionDays, directory: URL(fileURLWithPath: telemetryDirectory, isDirectory: true)
+        )
+    }
 
     var useDefaultSeverity: Bool {
         didSet { defaults.set(useDefaultSeverity, forKey: Keys.useDefaultSeverity) }
@@ -134,7 +171,8 @@ final class AppSettings {
         )
     }
 
-    init() {
+    init(defaults: UserDefaults = .standard) {
+        self.defaults = defaults
         var registrations: [String: Any] = [
             Keys.useDefaultSeverity: true,
             Keys.warningThresholdPercent: 75.0,
@@ -142,7 +180,11 @@ final class AppSettings {
             Keys.menuBarPercentageSelection: MenuBarPercentageSelection.highest.rawValue,
             Keys.fuelTankMode: false,
             Keys.showMenuBarFlame: true,
-            Keys.celebrationsEnabled: false
+            Keys.celebrationsEnabled: false,
+            Keys.telemetryEnabled: false,
+            Keys.telemetryIntervalMinutes: 5,
+            Keys.telemetryRetentionDays: 90,
+            Keys.telemetryDirectory: TelemetryConfiguration.defaultDirectory.path
         ]
         for trigger in CelebrationTrigger.allCases {
             registrations[Keys.celebrationEnabled(trigger)] = true
@@ -151,6 +193,12 @@ final class AppSettings {
         defaults.register(defaults: registrations)
 
         useDefaultSeverity = defaults.bool(forKey: Keys.useDefaultSeverity)
+        telemetryEnabled = defaults.bool(forKey: Keys.telemetryEnabled)
+        storedTelemetryIntervalMinutes = min(max(defaults.integer(forKey: Keys.telemetryIntervalMinutes), 1), 1_440)
+        storedTelemetryRetentionDays = TelemetryConfiguration.normalizedRetentionDays(defaults.integer(forKey: Keys.telemetryRetentionDays))
+        telemetryDirectory = defaults.string(forKey: Keys.telemetryDirectory).flatMap {
+            $0.hasPrefix("/") ? $0 : nil
+        } ?? TelemetryConfiguration.defaultDirectory.path
         menuBarPercentageSelection = MenuBarPercentageSelection(
             rawValue: defaults.string(forKey: Keys.menuBarPercentageSelection)
         )

@@ -122,10 +122,6 @@ struct MenuBarLabelView: View {
             severity: displayedLimit.map { settings.thresholds.resolve(for: $0) } ?? .normal,
             flameColor: flameColor
         ))
-        .onAppear {
-            model.attachCelebrations(settings: settings, controller: celebrations)
-            model.startPolling()
-        }
     }
 
     private var flameColor: NSColor? {

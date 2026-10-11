@@ -74,34 +74,66 @@ public struct RateLimitWindow: Decodable, Sendable, Equatable {
 }
 
 public struct RateLimitBucket: Decodable, Sendable, Equatable {
-    public let limitId: String
+    public let limitId: String?
     public let limitName: String?
     public let planType: String?
     public let primary: RateLimitWindow?
     public let secondary: RateLimitWindow?
+    public let credits: CreditsSnapshot?
+    public let individualLimit: SpendControlSnapshot?
+    public let spendControlReached: Bool?
+    public let rateLimitReachedType: String?
+    public let normalModelSlug: String?
 
     public init(
-        limitId: String,
+        limitId: String?,
         limitName: String?,
         planType: String?,
         primary: RateLimitWindow?,
-        secondary: RateLimitWindow?
+        secondary: RateLimitWindow?,
+        credits: CreditsSnapshot? = nil,
+        individualLimit: SpendControlSnapshot? = nil,
+        spendControlReached: Bool? = nil,
+        rateLimitReachedType: String? = nil,
+        normalModelSlug: String? = nil
     ) {
         self.limitId = limitId
         self.limitName = limitName
         self.planType = planType
         self.primary = primary
         self.secondary = secondary
+        self.credits = credits
+        self.individualLimit = individualLimit
+        self.spendControlReached = spendControlReached
+        self.rateLimitReachedType = rateLimitReachedType
+        self.normalModelSlug = normalModelSlug
     }
 }
 
 public struct RateLimitsResult: Decodable, Sendable, Equatable {
     public let rateLimits: RateLimitBucket?
     public let rateLimitsByLimitId: [String: RateLimitBucket]?
+    public let rateLimitResetCredits: ResetCreditsSummary?
+    public let ordinaryUsageAllowed: Bool?
+    public let accountId: String?
 
-    public init(rateLimits: RateLimitBucket?, rateLimitsByLimitId: [String: RateLimitBucket]?) {
+    public init(
+        rateLimits: RateLimitBucket?, rateLimitsByLimitId: [String: RateLimitBucket]?,
+        rateLimitResetCredits: ResetCreditsSummary? = nil,
+        ordinaryUsageAllowed: Bool? = nil, accountId: String? = nil
+    ) {
         self.rateLimits = rateLimits
         self.rateLimitsByLimitId = rateLimitsByLimitId
+        self.rateLimitResetCredits = rateLimitResetCredits
+        self.ordinaryUsageAllowed = ordinaryUsageAllowed
+        self.accountId = accountId
+    }
+
+    public var orderedBuckets: [(id: String, bucket: RateLimitBucket)] {
+        if let byID = rateLimitsByLimitId, !byID.isEmpty {
+            return byID.keys.sorted().compactMap { id in byID[id].map { (id, $0) } }
+        }
+        return rateLimits.map { [($0.limitId ?? "codex", $0)] } ?? []
     }
 }
 
@@ -129,25 +161,33 @@ public struct CodexProbeResult: Sendable, Equatable {
     public let account: AccountReadResult
     public let rateLimits: RateLimitsResult?
     public let rateLimitsError: RPCError?
+    public let tokenUsage: AccountTokenUsage?
+    public let tokenUsageError: RPCError?
 
-    public init(account: AccountReadResult, rateLimits: RateLimitsResult?, rateLimitsError: RPCError?) {
+    public init(
+        account: AccountReadResult, rateLimits: RateLimitsResult?, rateLimitsError: RPCError?,
+        tokenUsage: AccountTokenUsage? = nil, tokenUsageError: RPCError? = nil
+    ) {
         self.account = account
         self.rateLimits = rateLimits
         self.rateLimitsError = rateLimitsError
+        self.tokenUsage = tokenUsage
+        self.tokenUsageError = tokenUsageError
     }
 }
 
 public enum UsageLimitMapper {
     public static func limits(from result: RateLimitsResult) -> [UsageLimit] {
-        let buckets = orderedBuckets(from: result)
+        let buckets = result.orderedBuckets
         let showBucketName = buckets.count > 1
 
-        return buckets.flatMap { bucket in
-            let bucketName = bucket.limitName.flatMap { $0.isEmpty ? nil : $0 } ?? bucket.limitId
+        return buckets.flatMap { id, bucket in
+            let bucketName = bucket.limitName.flatMap { $0.isEmpty ? nil : $0 } ?? id
             return [
                 bucket.primary.map {
                     makeLimit(
                         bucket: bucket,
+                        bucketID: id,
                         bucketName: bucketName,
                         role: "primary",
                         window: $0,
@@ -157,6 +197,7 @@ public enum UsageLimitMapper {
                 bucket.secondary.map {
                     makeLimit(
                         bucket: bucket,
+                        bucketID: id,
                         bucketName: bucketName,
                         role: "secondary",
                         window: $0,
@@ -168,18 +209,12 @@ public enum UsageLimitMapper {
     }
 
     public static func planType(from result: RateLimitsResult, account: AccountInfo?) -> String? {
-        orderedBuckets(from: result).compactMap(\.planType).first ?? account?.planType
-    }
-
-    private static func orderedBuckets(from result: RateLimitsResult) -> [RateLimitBucket] {
-        if let byId = result.rateLimitsByLimitId, !byId.isEmpty {
-            return byId.keys.sorted().compactMap { byId[$0] }
-        }
-        return result.rateLimits.map { [$0] } ?? []
+        result.orderedBuckets.compactMap { $0.bucket.planType }.first ?? account?.planType
     }
 
     private static func makeLimit(
         bucket: RateLimitBucket,
+        bucketID: String,
         bucketName: String,
         role: String,
         window: RateLimitWindow,
@@ -188,7 +223,7 @@ public enum UsageLimitMapper {
         let windowName = displayName(for: window, role: role)
         let name = showBucketName ? "\(windowName) — \(humanize(bucketName))" : windowName
         return UsageLimit(
-            id: "\(bucket.limitId).\(role)",
+            id: "\(bucketID).\(role)",
             name: name,
             percent: min(max(window.usedPercent, 0), 100),
             resetsAt: window.resetsAt.map(Date.init(timeIntervalSince1970:)),

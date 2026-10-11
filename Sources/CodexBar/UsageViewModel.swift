@@ -11,10 +11,25 @@ final class UsageViewModel {
     private(set) var lastUpdated: Date?
     private(set) var lastError: String?
     private(set) var isRefreshing = false
+    private(set) var telemetryError: String?
+    private(set) var lastTelemetryWrite: Date?
 
-    private let client = CodexAppServerClient()
+    private let client: any UsageFetching
+    private let pollInterval: Duration
+    private let captureInterval: @Sendable (Int) -> Duration
+    private let configuredCodexHome: URL?
     private let logger = Logger(subsystem: "com.gordonbeeming.CodexBar", category: "Usage")
     private var pollTask: Task<Void, Never>?
+    @ObservationIgnored private var telemetryTask: Task<Void, Never>?
+    @ObservationIgnored private var telemetryRecorder: TelemetryRecorder?
+    @ObservationIgnored private var telemetryConfiguration: TelemetryConfiguration?
+    @ObservationIgnored private var telemetryGeneration = UUID()
+    @ObservationIgnored private var latestSnapshot: UsageSnapshot?
+    @ObservationIgnored private var snapshotObservedAt: Date?
+    @ObservationIgnored private var tokenReader: LocalTokenUsageReader?
+    @ObservationIgnored private var telemetrySinks: [URL: LocalTelemetrySink] = [:]
+    @ObservationIgnored private var refreshWaiters: [CheckedContinuation<Void, Never>] = []
+    @ObservationIgnored private var settingsObservationGeneration = UUID()
     @ObservationIgnored private var previousSnapshots: [String: LimitSnapshot] = [:]
     @ObservationIgnored private var hasSeededCelebrations = false
     @ObservationIgnored private weak var settings: AppSettings?
@@ -23,6 +38,49 @@ final class UsageViewModel {
 
     private static let staleThreshold: TimeInterval = 30
     private static let didApplyDefaultLaunchAtLoginKey = "didApplyDefaultLaunchAtLogin"
+
+    init(
+        client: any UsageFetching = CodexAppServerClient(), pollInterval: Duration = .seconds(60),
+        captureInterval: @escaping @Sendable (Int) -> Duration = { .seconds($0 * 60) }, codexHome: URL? = nil
+    ) {
+        self.client = client
+        self.pollInterval = pollInterval
+        self.captureInterval = captureInterval
+        self.configuredCodexHome = codexHome
+    }
+
+    func stop() {
+        settingsObservationGeneration = UUID()
+        telemetryGeneration = UUID()
+        pollTask?.cancel()
+        pollTask = nil
+        telemetryTask?.cancel()
+        telemetryTask = nil
+        telemetryRecorder?.stop()
+        telemetryRecorder = nil
+        telemetryConfiguration = nil
+        tokenReader = nil
+    }
+
+    func start(settings: AppSettings, celebrations: CelebrationController) {
+        attachCelebrations(settings: settings, controller: celebrations)
+        settingsObservationGeneration = UUID()
+        observeTelemetrySettings(settings, generation: settingsObservationGeneration)
+        startPolling()
+    }
+
+    private func observeTelemetrySettings(_ settings: AppSettings, generation: UUID) {
+        guard generation == settingsObservationGeneration else { return }
+        let configuration = withObservationTracking {
+            settings.telemetryConfiguration
+        } onChange: { [weak self, weak settings] in
+            Task { @MainActor in
+                guard let self, let settings else { return }
+                self.observeTelemetrySettings(settings, generation: generation)
+            }
+        }
+        configureTelemetry(configuration)
+    }
 
     var launchAtLoginAvailable: Bool {
         Bundle.main.bundleURL.pathExtension == "app"
@@ -49,18 +107,29 @@ final class UsageViewModel {
             while !Task.isCancelled {
                 guard let self else { break }
                 await self.refresh()
-                try? await Task.sleep(for: .seconds(60))
+                do { try await Task.sleep(for: self.pollInterval) }
+                catch { return }
             }
         }
     }
 
     func refresh() async {
-        guard !isRefreshing else { return }
+        if isRefreshing {
+            await withCheckedContinuation { refreshWaiters.append($0) }
+            return
+        }
         isRefreshing = true
-        defer { isRefreshing = false }
+        defer {
+            isRefreshing = false
+            let waiters = refreshWaiters
+            refreshWaiters = []
+            for waiter in waiters { waiter.resume() }
+        }
 
         do {
-            let snapshot = try await client.fetchUsage()
+            let snapshot = try await client.fetchUsage(includeTokenUsage: telemetryRecorder != nil)
+            latestSnapshot = snapshot
+            snapshotObservedAt = Date()
             planType = snapshot.planType
             lastUpdated = Date()
             lastError = nil
@@ -79,6 +148,15 @@ final class UsageViewModel {
                     "held suspicious usage regression pending confirmation (\(confirmations, privacy: .public)/\(required, privacy: .public))"
                 )
             }
+            if let recorder = telemetryRecorder {
+                let generation = telemetryGeneration
+                do {
+                    try await recorder.observeResetCredits(result: snapshot.rateLimits,
+                                                           planType: snapshot.planType, at: Date())
+                } catch {
+                    reportTelemetryFailure(error, generation: generation)
+                }
+            }
         } catch {
             logger.error("usage refresh failed: \(error.localizedDescription, privacy: .public)")
             lastError = error.localizedDescription
@@ -94,6 +172,129 @@ final class UsageViewModel {
     func attachCelebrations(settings: AppSettings, controller: CelebrationController) {
         self.settings = settings
         celebrations = controller
+    }
+
+    func configureTelemetry(_ configuration: TelemetryConfiguration) {
+        guard configuration != telemetryConfiguration else { return }
+        let previousConfiguration = telemetryConfiguration
+        let previousRecorder = telemetryRecorder
+        telemetryConfiguration = configuration
+        telemetryTask?.cancel()
+        telemetryTask = nil
+        telemetryGeneration = UUID()
+        telemetryError = nil
+        guard configuration.enabled else {
+            telemetryRecorder = nil
+            tokenReader = nil
+            lastTelemetryWrite = nil
+            previousRecorder?.stop()
+            return
+        }
+        let reuseRecorder = previousConfiguration?.enabled == true && previousConfiguration?.directory == configuration.directory
+        let recorder: TelemetryRecorder
+        if reuseRecorder, let previousRecorder { recorder = previousRecorder }
+        else {
+            let directory = configuration.directory.standardizedFileURL
+            let sink = telemetrySinks[directory] ?? LocalTelemetrySink(directory: directory)
+            telemetrySinks[directory] = sink
+            recorder = TelemetryRecorder(
+                sink: sink, retentionDays: configuration.retentionDays,
+                serviceVersion: Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "development"
+            )
+            lastTelemetryWrite = nil
+        }
+        telemetryRecorder = recorder
+        recorder.updateRetentionDays(configuration.retentionDays)
+        if !reuseRecorder { previousRecorder?.stop() }
+        let environment = ProcessInfo.processInfo.environment
+        let codexHome = configuredCodexHome ?? environment["CODEX_HOME"].flatMap { $0.isEmpty ? nil : URL(fileURLWithPath: $0, isDirectory: true) }
+            ?? FileManager.default.homeDirectoryForCurrentUser.appending(path: ".codex")
+        if !reuseRecorder { tokenReader = LocalTokenUsageReader(codexHome: codexHome) }
+        let generation = telemetryGeneration
+        let interval = captureInterval(configuration.intervalMinutes)
+        telemetryTask = Task { [weak self] in
+            guard !Task.isCancelled, self?.telemetryGeneration == generation else { return }
+            let clock = ContinuousClock()
+            var nextCapture = clock.now
+            if reuseRecorder {
+                nextCapture = nextCapture.advanced(by: interval)
+                do { try await clock.sleep(until: nextCapture) }
+                catch { return }
+            }
+            while !Task.isCancelled {
+                guard let self, self.telemetryGeneration == generation else { return }
+                await self.captureTelemetry(recorder: recorder, generation: generation)
+                nextCapture = nextCapture.advanced(by: interval)
+                if nextCapture < clock.now { nextCapture = clock.now.advanced(by: interval) }
+                do {
+                    try await clock.sleep(until: nextCapture)
+                } catch { return }
+            }
+        }
+    }
+
+    private func captureTelemetry(recorder: TelemetryRecorder, generation: UUID) async {
+        if needsTelemetryRefresh {
+            await refresh()
+        }
+        guard !Task.isCancelled, generation == telemetryGeneration else { return }
+        var tokenTotals: LocalTokenTotals?
+        var tokenError: String?
+        do {
+            tokenTotals = try await tokenReader?.collect()
+            if let skipped = tokenTotals?.skippedFiles, skipped > 0 {
+                tokenError = "Skipped \(skipped) local session files with unreadable usage or unresolved fork history"
+            }
+        }
+        catch {
+            guard !Task.isCancelled, generation == telemetryGeneration else { return }
+            tokenError = "Couldn't read local token totals: \(error.localizedDescription)"
+            logger.error("local token collection failed: \(error.localizedDescription, privacy: .public)")
+        }
+        guard !Task.isCancelled, generation == telemetryGeneration else { return }
+        if needsTelemetryRefresh { await refresh() }
+        guard !Task.isCancelled, generation == telemetryGeneration else { return }
+        // Local history scans can take time. Select account data after the scan
+        // so a slow first capture cannot export an expired cached response.
+        let isFresh = snapshotObservedAt.map { Date().timeIntervalSince($0) <= 120 } ?? false
+        let snapshot = isFresh ? latestSnapshot : nil
+        let observedAt = snapshot == nil ? nil : snapshotObservedAt
+        guard snapshot != nil || tokenTotals != nil else {
+            telemetryError = tokenError ?? "Waiting for fresh Codex usage data"
+            return
+        }
+        do {
+            let capturedAt = Date()
+            if let snapshot {
+                try await recorder.observeResetCredits(result: snapshot.rateLimits,
+                                                       planType: snapshot.planType, at: capturedAt)
+            }
+            guard !Task.isCancelled, generation == telemetryGeneration else { return }
+            try await recorder.recordSample(result: snapshot?.rateLimits, planType: snapshot?.planType,
+                                            observedAt: observedAt,
+                                            at: capturedAt, localTokens: tokenTotals, accountTokens: snapshot?.tokenUsage)
+            guard generation == telemetryGeneration else { return }
+            lastTelemetryWrite = capturedAt
+            var warnings = await recorder.exportWarnings()
+            guard generation == telemetryGeneration else { return }
+            if let tokenError { warnings.append(tokenError) }
+            if let error = snapshot?.tokenUsageError { warnings.append("Account token summary unavailable: \(error)") }
+            if snapshot == nil { warnings.append("Account usage unavailable; recorded local tokens only") }
+            telemetryError = warnings.isEmpty ? nil : warnings.joined(separator: "\n")
+        } catch {
+            reportTelemetryFailure(error, generation: generation)
+        }
+    }
+
+    private var needsTelemetryRefresh: Bool {
+        (snapshotObservedAt.map { Date().timeIntervalSince($0) > Self.staleThreshold } ?? true)
+            || (latestSnapshot?.tokenUsage == nil && latestSnapshot?.tokenUsageError == nil)
+    }
+
+    private func reportTelemetryFailure(_ error: Error, generation: UUID) {
+        guard generation == telemetryGeneration else { return }
+        telemetryError = error.localizedDescription
+        logger.error("telemetry export failed: \(error.localizedDescription, privacy: .public)")
     }
 
     func previewCelebration(_ choice: ReactionChoice) {

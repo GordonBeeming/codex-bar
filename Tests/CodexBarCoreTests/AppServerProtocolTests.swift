@@ -41,4 +41,18 @@ final class AppServerProtocolTests: XCTestCase {
             XCTAssertEqual(error as? AppServerProtocolError, .missingAccountResponse)
         }
     }
+
+    func testOptionalAccountTokenSummaryAndUnsupportedMethod() throws {
+        let base = "{\"id\":1,\"result\":{\"account\":{\"type\":\"chatgpt\"},\"requiresOpenaiAuth\":true}}\n"
+        let response = base + "{\"id\":3,\"result\":{\"summary\":{\"lifetimeTokens\":9007199254740993,\"peakDailyTokens\":42},\"dailyUsageBuckets\":[{\"startDate\":\"2026-10-01\",\"tokens\":42}]}}\n"
+        let result = try CodexAppServerResponseParser.parse(Data(response.utf8))
+        XCTAssertEqual(result.tokenUsage?.summary.lifetimeTokens, 9_007_199_254_740_993)
+        XCTAssertEqual(result.tokenUsage?.dailyUsageBuckets?.first?.tokens, 42)
+        XCTAssertNil(result.tokenUsageError)
+        let unsupported = base + "{\"id\":3,\"error\":{\"code\":-32601,\"message\":\"Unsupported method\"}}\n"
+        let fallback = try CodexAppServerResponseParser.parse(Data(unsupported.utf8))
+        XCTAssertNil(fallback.tokenUsage)
+        XCTAssertEqual(fallback.tokenUsageError?.code, -32601)
+        XCTAssertEqual(fallback.account.account?.type, "chatgpt")
+    }
 }
