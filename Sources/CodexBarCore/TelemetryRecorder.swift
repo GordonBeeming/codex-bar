@@ -24,7 +24,7 @@ public actor TelemetryRecorder {
         localTokens: LocalTokenTotals? = nil, accountTokens: AccountTokenUsage? = nil
     ) async throws {
         try activity.check()
-        let scope = result?.accountId ?? dailyAccountScope ?? planType
+        let scope = result?.accountId ?? planType ?? dailyAccountScope
         if scope != dailyAccountScope { dailyBuckets = [:] }
         let today = String(ISO8601DateFormatter().string(from: date).prefix(10))
         let changedBuckets = accountTokens?.dailyUsageBuckets?.filter {
@@ -53,7 +53,7 @@ public actor TelemetryRecorder {
         await acquireCreditObservation()
         defer { releaseCreditObservation() }
         try activity.check()
-        let scope = result.accountId ?? accountScope ?? planType
+        let scope = result.accountId ?? planType ?? accountScope
         let changedAccount = accountScope != scope
         let previousCount = changedAccount ? nil : availableCount
         var statuses = changedAccount ? [:] : creditStatuses

@@ -102,6 +102,27 @@ final class TelemetryTests: XCTestCase {
         XCTAssertEqual(lines.count, 2)
     }
 
+    func testPlanFallbackChangeReseedsCreditObservations() async throws {
+        let sink = MemorySink()
+        let recorder = TelemetryRecorder(sink: sink, retentionDays: 90, serviceVersion: "test")
+        let available = try fixture("""
+        {"rateLimitResetCredits":{"availableCount":1,"credits":[
+          {"id":"credit-1","status":"available","resetType":"codexRateLimits","grantedAt":1}]}}
+        """)
+        let redeemed = try fixture("""
+        {"rateLimitResetCredits":{"availableCount":0,"credits":[
+          {"id":"credit-1","status":"redeemed","resetType":"codexRateLimits","grantedAt":1}]}}
+        """)
+        try await recorder.observeResetCredits(result: available, planType: "pro", at: Date())
+        try await recorder.observeResetCredits(result: redeemed, planType: "team", at: Date())
+        let lines = await sink.lines
+        XCTAssertEqual(lines.count, 2)
+        let text = String(decoding: lines[1], as: UTF8.self)
+        XCTAssertTrue(text.contains("codex.reset_credit.status_observed"))
+        XCTAssertFalse(text.contains("codex.reset_credit.redeemed"))
+        XCTAssertFalse(text.contains("codex.reset_credits.previous_count"))
+    }
+
     func testDailyFilesAppendAndRetentionOnlyDeletesOwnedRegularFiles() async throws {
         let directory = temporaryDirectory()
         defer { removeTemporary(directory) }
@@ -283,6 +304,21 @@ final class TelemetryTests: XCTestCase {
         XCTAssertFalse(String(decoding: lines[3], as: UTF8.self).contains("2026-10-01"))
         XCTAssertTrue(String(decoding: lines[3], as: UTF8.self).contains("2026-10-11"))
         XCTAssertTrue(String(decoding: lines[2], as: UTF8.self).contains("codex.account.lifetime"))
+    }
+
+    func testPlanFallbackChangeReseedsHistoricalDailyBuckets() async throws {
+        let sink = MemorySink()
+        let recorder = TelemetryRecorder(sink: sink, retentionDays: 90, serviceVersion: "test")
+        let account = try fixture("{\"rateLimits\":{\"primary\":{\"usedPercent\":5}}}")
+        let tokens = try JSONDecoder().decode(AccountTokenUsage.self, from: Data("""
+        {"summary":{"lifetimeTokens":20},"dailyUsageBuckets":[{"startDate":"2026-10-01","tokens":20}]}
+        """.utf8))
+        let date = try XCTUnwrap(ISO8601DateFormatter().date(from: "2026-10-11T00:00:00Z"))
+        for plan in ["pro", "team"] {
+            try await recorder.recordSample(result: account, planType: plan, observedAt: date, at: date, accountTokens: tokens)
+        }
+        let lines = await sink.lines
+        XCTAssertTrue(String(decoding: lines[3], as: UTF8.self).contains("2026-10-01"))
     }
 
     func testStopCancelsExportAlreadyQueuedInSink() async throws {
