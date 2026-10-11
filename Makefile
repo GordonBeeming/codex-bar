@@ -24,6 +24,7 @@ bundle: build
 	cp .build/release/CodexBar $(APP_BUNDLE)/Contents/MacOS/
 	cp Packaging/Info.plist $(APP_BUNDLE)/Contents/Info.plist
 	cp Packaging/AppIcon.icns $(APP_BUNDLE)/Contents/Resources/
+	cp LICENSE $(APP_BUNDLE)/Contents/Resources/
 	/usr/libexec/PlistBuddy \
 		-c "Set :CFBundleShortVersionString $(VERSION)" \
 		-c "Set :CFBundleVersion $(BUILD)" \
