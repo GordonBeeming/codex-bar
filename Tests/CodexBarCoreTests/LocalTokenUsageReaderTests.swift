@@ -108,6 +108,26 @@ final class LocalTokenUsageReaderTests: XCTestCase {
         XCTAssertEqual(updated.counts["output"]?.value, 28)
     }
 
+    func testForkPreservesOptionalCountersAbsentFromInheritedSnapshot() async throws {
+        let home = try temporaryHome()
+        defer { clean(home) }
+        let child = UUID().uuidString
+        let metadata = "{\"ordinal\":0,\"type\":\"session_meta\",\"payload\":{\"id\":\"\(child)\",\"timestamp\":\"2026-10-02T00:00:00Z\",\"subagent_history_start_ordinal\":2}}\n"
+        let inherited = event(input: 100, output: 20, ordinal: 1)
+        let own = event(input: 130, output: 25, day: 3,
+                        extra: ",\"cached_input_tokens\":5,\"cache_write_input_tokens\":3,\"reasoning_output_tokens\":2", ordinal: 2)
+        try Data((metadata + inherited + own).utf8)
+            .write(to: home.appending(path: "sessions/rollout-\(child).jsonl"))
+        let totals = try await LocalTokenUsageReader(codexHome: home).collect()
+        XCTAssertEqual(totals.skippedFiles, 0)
+        XCTAssertEqual(totals.counts["input"]?.value, 30)
+        XCTAssertEqual(totals.counts["output"]?.value, 5)
+        for (kind, value) in [("cached_input", Int64(5)), ("cache_write_input", 3), ("reasoning_output", 2)] {
+            XCTAssertEqual(totals.counts[kind]?.value, value)
+            XCTAssertEqual(totals.counts[kind]?.sessionsReporting, 1)
+        }
+    }
+
     func testRestampedCopiedForkUsesItsOwnHistoryOrdinalInsteadOfParentTime() async throws {
         let home = try temporaryHome()
         defer { clean(home) }

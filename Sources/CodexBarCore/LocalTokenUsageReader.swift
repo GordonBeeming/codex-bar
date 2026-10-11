@@ -178,7 +178,7 @@ public actor LocalTokenUsageReader {
                     }
                     if let baseline {
                         counts = try counts.reduce(into: [:]) { result, item in
-                            guard let inherited = baseline.counts[item.key] else { return }
+                            let inherited = baseline.counts[item.key] ?? 0
                             let (value, overflow) = item.value.subtractingReportingOverflow(inherited)
                             guard !overflow, value >= 0 else { throw CocoaError(.coderInvalidValue) }
                             result[item.key] = value

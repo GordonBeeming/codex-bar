@@ -65,7 +65,7 @@ struct CodexAppServerClient: UsageFetching {
         )
     }
 
-    private static func runProbe(executable: URL, includeTokenUsage: Bool) throws -> Data {
+    static func runProbe(executable: URL, includeTokenUsage: Bool, optionalResponseTimeout: TimeInterval = 2) throws -> Data {
         let process = Process()
         let input = Pipe()
         let output = Pipe()
@@ -126,11 +126,18 @@ struct CodexAppServerClient: UsageFetching {
         guard read(until: [1, 2], from: output.fileHandleForReading, into: &response) else {
             throw CodexClientError.processFailed
         }
-        if includeTokenUsage, !read(until: [3], from: output.fileHandleForReading, into: &response) {
-            let error: [String: Any] = ["id": 3, "error": ["code": -1, "message": "Account token usage request did not complete"]]
-            response.append(0x0A)
-            response.append(try JSONSerialization.data(withJSONObject: error))
-            response.append(0x0A)
+        if includeTokenUsage {
+            let optionalTimeout = DispatchWorkItem {
+                if process.isRunning { process.terminate() }
+            }
+            DispatchQueue.global(qos: .utility).asyncAfter(deadline: .now() + optionalResponseTimeout, execute: optionalTimeout)
+            defer { optionalTimeout.cancel() }
+            if !read(until: [3], from: output.fileHandleForReading, into: &response) {
+                let error: [String: Any] = ["id": 3, "error": ["code": -1, "message": "Account token usage request did not complete"]]
+                response.append(0x0A)
+                response.append(try JSONSerialization.data(withJSONObject: error))
+                response.append(0x0A)
+            }
         }
 
         try input.fileHandleForWriting.close()
