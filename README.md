@@ -80,3 +80,7 @@ The testable usage mapping, formatting, thresholds, celebration detection, and s
 Publish a GitHub release tagged `vX.Y` and CI handles the rest: tests, Developer ID signing, notarization, stapling, DMG upload, and the signed Homebrew cask update.
 
 For local setup, packaging details, CI secrets, and the full release process, see the [development and release guide](docs/development.md).
+
+## License
+
+CodexBar is released under the [MIT License](LICENSE).
