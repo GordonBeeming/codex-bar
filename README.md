@@ -84,3 +84,5 @@ For local setup, packaging details, CI secrets, and the full release process, se
 ## License
 
 CodexBar is released under the [MIT License](LICENSE).
+
+The MIT license doesn't cover the OpenAI logo used for the menu bar icon (`openAIKnotTemplateBase64` in `Sources/CodexBar/MenuBarIconRenderer.swift`). OpenAI owns that logo and it stays under [OpenAI's brand guidelines](https://openai.com/brand/). If you fork or redistribute CodexBar, you'll need your own rights to use it or a replacement icon.
