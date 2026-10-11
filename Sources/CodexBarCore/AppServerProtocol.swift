@@ -34,6 +34,8 @@ public enum CodexAppServerResponseParser {
         var accountError: RPCError?
         var rateLimits: RateLimitsResult?
         var rateLimitsError: RPCError?
+        var tokenUsage: AccountTokenUsage?
+        var tokenUsageError: RPCError?
         var sawJSON = false
 
         for line in data.split(separator: 0x0A) where !line.isEmpty {
@@ -55,6 +57,13 @@ public enum CodexAppServerResponseParser {
                 } else if let response = try? decoder.decode(RateLimitsResponse.self, from: Data(line)) {
                     rateLimits = response.result
                 }
+            case 3:
+                if let error = header.error {
+                    tokenUsageError = error
+                } else {
+                    do { tokenUsage = try decoder.decode(TokenUsageResponse.self, from: Data(line)).result }
+                    catch { tokenUsageError = RPCError(code: -1, message: "Codex returned malformed account token usage") }
+                }
             default:
                 continue
             }
@@ -68,7 +77,7 @@ public enum CodexAppServerResponseParser {
         return CodexProbeResult(
             account: account,
             rateLimits: rateLimits,
-            rateLimitsError: rateLimitsError
+            rateLimitsError: rateLimitsError, tokenUsage: tokenUsage, tokenUsageError: tokenUsageError
         )
     }
 
@@ -84,4 +93,5 @@ public enum CodexAppServerResponseParser {
     private struct RateLimitsResponse: Decodable {
         let result: RateLimitsResult
     }
+    private struct TokenUsageResponse: Decodable { let result: AccountTokenUsage }
 }

@@ -16,9 +16,9 @@
 
 ---
 
-CodexBar shows your Codex plan limits in the menu bar—the same session and weekly percentages reported by Codex, nothing more. The menu-bar item shows the highest usage percentage; the dropdown lists each limit with a progress bar, its reset time in your local timezone, and whether you're ahead of a steady pace through the window.
+CodexBar shows your Codex plan limits in the menu bar. The menu-bar item shows the highest usage percentage; the dropdown lists each limit with a progress bar, its reset time in your local timezone, and whether you're ahead of a steady pace through the window.
 
-That's the whole app. No cost tracking, charts, token copying, account switching, or provider abstraction.
+You can also enable local telemetry to keep a history of usage limits, reset-credit observations, and token totals from sessions on your Mac.
 
 > Looking for the same simple menu bar experience for Claude? See [ClaudeBar](https://github.com/GordonBeeming/claude-bar).
 
@@ -56,6 +56,7 @@ Open **Settings…** from the dropdown:
 - **Pace flame** — show a flame beside the menu-bar percentage when usage is ahead of a steady pace through a window.
 - **⛽ Fuel tank mode** — flip every percentage and bar from *used* to *remaining*. Instead of a limit filling from 0 → 100% as you burn through it, it starts full and drains toward empty like a fuel gauge. It's purely cosmetic: colours, the pace flame, and the steady-pace marker still track real usage, so a nearly-empty tank still turns red.
 - **Celebrations** — choose full-screen reactions for session resets, weekly resets, and crossing the weekly pace line, or turn them off individually.
+- **Telemetry** — off by default. Record OTLP JSON to `~/Documents/CodexBar Telemetry`, choose another folder, or open it in Finder. Capture every five minutes and retain 90 days by default; both are configurable. See the [telemetry format and coverage](docs/telemetry.md).
 - **Launch at login** — on by default for an installed app.
 
 ## How it works

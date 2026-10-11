@@ -3,12 +3,23 @@ import SwiftUI
 
 @main
 struct CodexBarApp: App {
-    @State private var model = UsageViewModel()
-    @State private var settings = AppSettings()
-    @State private var celebrations = CelebrationController()
+    @State private var model: UsageViewModel
+    @State private var settings: AppSettings
+    @State private var celebrations: CelebrationController
 
     init() {
+        self.init(model: UsageViewModel(), settings: AppSettings())
+    }
+
+    init(
+        model: UsageViewModel, settings: AppSettings,
+        celebrations: CelebrationController = CelebrationController()
+    ) {
+        _model = State(initialValue: model)
+        _settings = State(initialValue: settings)
+        _celebrations = State(initialValue: celebrations)
         NSApplication.shared.setActivationPolicy(.accessory)
+        model.start(settings: settings, celebrations: celebrations)
     }
 
     var body: some Scene {
