@@ -55,7 +55,7 @@ final class TelemetryTests: XCTestCase {
 
     func testCreditEventsAreDeduplicatedAndDisappearanceDoesNotMeanRedeemed() async throws {
         let sink = MemorySink()
-        let recorder = TelemetryRecorder(sink: sink, retentionDays: 90, serviceVersion: "test")
+        let recorder = makeRecorder(sink)
         let available = try fixture("""
         {"accountId":"a","rateLimitResetCredits":{"availableCount":1,"credits":[
           {"id":"credit-1","status":"available","resetType":"codexRateLimits","grantedAt":1}
@@ -88,7 +88,7 @@ final class TelemetryTests: XCTestCase {
 
     func testFailedCreditExportRetriesAndAccountSwitchReseeds() async throws {
         let sink = MemorySink()
-        let recorder = TelemetryRecorder(sink: sink, retentionDays: 90, serviceVersion: "test")
+        let recorder = makeRecorder(sink)
         let first = try fixture("{\"accountId\":\"a\",\"rateLimitResetCredits\":{\"availableCount\":1}}")
         await sink.failNext()
         do {
@@ -104,7 +104,7 @@ final class TelemetryTests: XCTestCase {
 
     func testPlanFallbackChangeReseedsCreditObservations() async throws {
         let sink = MemorySink()
-        let recorder = TelemetryRecorder(sink: sink, retentionDays: 90, serviceVersion: "test")
+        let recorder = makeRecorder(sink)
         let available = try fixture("""
         {"rateLimitResetCredits":{"availableCount":1,"credits":[
           {"id":"credit-1","status":"available","resetType":"codexRateLimits","grantedAt":1}]}}
@@ -186,8 +186,7 @@ final class TelemetryTests: XCTestCase {
         let oldFiles = ["codexbar-metrics-2020-01-01.jsonl", "codexbar-logs-2020-01-01.jsonl"]
         for name in oldFiles { try Data("{}\n".utf8).write(to: directory.appending(path: name)) }
         let configuration = TelemetryConfiguration(retentionDays: 0, directory: directory)
-        let recorder = TelemetryRecorder(sink: LocalTelemetrySink(directory: directory),
-                                         retentionDays: configuration.retentionDays, serviceVersion: "test")
+        let recorder = makeRecorder(LocalTelemetrySink(directory: directory), retentionDays: configuration.retentionDays)
         let date = try XCTUnwrap(ISO8601DateFormatter().date(from: "2026-10-11T00:00:00Z"))
         try await recorder.recordSample(result: nil, planType: nil, observedAt: nil, at: date)
         for name in oldFiles { XCTAssertTrue(FileManager.default.fileExists(atPath: directory.appending(path: name).path)) }
@@ -203,7 +202,7 @@ final class TelemetryTests: XCTestCase {
     func testConcurrentCreditObservationsAndRetentionChangesKeepOneBaseline() async throws {
         let sink = MemorySink()
         await sink.setDelay(.milliseconds(20))
-        let recorder = TelemetryRecorder(sink: sink, retentionDays: 90, serviceVersion: "test")
+        let recorder = makeRecorder(sink)
         let summary = try fixture("{\"rateLimitResetCredits\":{\"availableCount\":1}}")
         async let first: Void = recorder.observeResetCredits(result: summary, planType: "pro", at: Date())
         async let second: Void = recorder.observeResetCredits(result: summary, planType: "pro", at: Date())
@@ -225,7 +224,7 @@ final class TelemetryTests: XCTestCase {
 
     func testFirstObservedRedeemedCreditIsStatusObservationNotNewRedemption() async throws {
         let sink = MemorySink()
-        let recorder = TelemetryRecorder(sink: sink, retentionDays: 90, serviceVersion: "test")
+        let recorder = makeRecorder(sink)
         let summary = try fixture("""
         {"rateLimitResetCredits":{"availableCount":0,"credits":[
           {"id":"credit-1","status":"redeemed","resetType":"codexRateLimits","grantedAt":1}
@@ -290,7 +289,7 @@ final class TelemetryTests: XCTestCase {
 
     func testHistoricalDailyBucketsAreOnlyRepeatedWhenChanged() async throws {
         let sink = MemorySink()
-        let recorder = TelemetryRecorder(sink: sink, retentionDays: 90, serviceVersion: "test")
+        let recorder = makeRecorder(sink)
         let account = try fixture("{\"accountId\":\"a\",\"rateLimits\":{\"primary\":{\"usedPercent\":5}}}")
         let tokens = try JSONDecoder().decode(AccountTokenUsage.self, from: Data("""
         {"summary":{"lifetimeTokens":50},"dailyUsageBuckets":[
@@ -308,7 +307,7 @@ final class TelemetryTests: XCTestCase {
 
     func testPlanFallbackChangeReseedsHistoricalDailyBuckets() async throws {
         let sink = MemorySink()
-        let recorder = TelemetryRecorder(sink: sink, retentionDays: 90, serviceVersion: "test")
+        let recorder = makeRecorder(sink)
         let account = try fixture("{\"rateLimits\":{\"primary\":{\"usedPercent\":5}}}")
         let tokens = try JSONDecoder().decode(AccountTokenUsage.self, from: Data("""
         {"summary":{"lifetimeTokens":20},"dailyUsageBuckets":[{"startDate":"2026-10-01","tokens":20}]}
@@ -324,7 +323,7 @@ final class TelemetryTests: XCTestCase {
     func testStopCancelsExportAlreadyQueuedInSink() async throws {
         let sink = MemorySink()
         await sink.setDelay(.milliseconds(50))
-        let recorder = TelemetryRecorder(sink: sink, retentionDays: 90, serviceVersion: "test")
+        let recorder = makeRecorder(sink)
         let task = Task { try await recorder.recordSample(result: nil, planType: nil, observedAt: nil, at: Date()) }
         try await Task.sleep(for: .milliseconds(10))
         recorder.stop()
@@ -362,6 +361,16 @@ final class TelemetryTests: XCTestCase {
             Data("{\"resourceMetrics\":[]}".utf8), signal: .metrics, at: Date(), retentionDays: 90, activity: activity
         )
         XCTAssertTrue(FileManager.default.fileExists(atPath: oldFile.path))
+    }
+
+    private func makeRecorder(_ sink: any TelemetrySink, retentionDays: Int = 90) -> TelemetryRecorder {
+        let home = temporaryDirectory()
+        addTeardownBlock {
+            if FileManager.default.fileExists(atPath: home.path) { try FileManager.default.removeItem(at: home) }
+        }
+        return TelemetryRecorder(sink: sink, retentionDays: retentionDays, serviceVersion: "test",
+                                 stateURL: home.appending(path: "state.json"),
+                                 scanner: SessionTokenScanner(codexHome: home.appending(path: "codex")))
     }
 
     private func temporaryDirectory() -> URL { FileManager.default.temporaryDirectory.appending(path: "codexbar-test-\(UUID())") }

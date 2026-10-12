@@ -86,6 +86,13 @@ public final class TelemetryActivity: Sendable {
         retentionDays.withLock { $0 ?? fallback }
     }
     public func stop() { enabled.withLock { $0 = false } }
+    /// Runs `body` only while enabled, holding the lock so `stop()` waits for it to finish.
+    public func whileEnabled(_ body: () throws -> Void) throws {
+        try enabled.withLock { enabled in
+            guard enabled else { throw CancellationError() }
+            try body()
+        }
+    }
     public func check() throws {
         try Task.checkCancellation()
         guard enabled.withLock({ $0 }) else { throw CancellationError() }

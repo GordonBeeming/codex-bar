@@ -220,8 +220,8 @@ public enum UsageLimitMapper {
         window: RateLimitWindow,
         showBucketName: Bool
     ) -> UsageLimit {
-        let windowName = displayName(for: window, role: role)
-        let name = showBucketName ? "\(windowName) — \(humanize(bucketName))" : windowName
+        let title = windowName(for: window, role: role)
+        let name = showBucketName ? "\(title) — \(humanize(bucketName))" : title
         return UsageLimit(
             id: "\(bucketID).\(role)",
             name: name,
@@ -231,7 +231,7 @@ public enum UsageLimitMapper {
         )
     }
 
-    private static func displayName(for window: RateLimitWindow, role: String) -> String {
+    static func windowName(for window: RateLimitWindow, role: String) -> String {
         switch window.windowDurationMins {
         case 300:
             return "Session (5h)"
@@ -250,7 +250,7 @@ public enum UsageLimitMapper {
         }
     }
 
-    private static func humanize(_ value: String) -> String {
+    static func humanize(_ value: String) -> String {
         value
             .replacingOccurrences(of: "_", with: " ")
             .split(separator: " ")

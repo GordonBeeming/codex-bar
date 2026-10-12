@@ -1,78 +1,77 @@
 # Telemetry
 
-Enable **Record telemetry to disk** in Settings to start recording. The default folder is `~/Documents/CodexBar Telemetry`. You can choose another folder and open it in Finder from the same section.
+CodexBar's telemetry follows the [Bar Telemetry Spec v1](https://github.com/GordonBeeming/bar-ui/blob/main/docs/telemetry-spec.md), the contract shared with ClaudeBar and read by Bar UI. The spec defines the file format, resource attributes, `bar.*` metrics, events and tracking settings. This page only covers what's specific to CodexBar: how Codex's data maps onto the spec, and the extra `codex.*` records CodexBar writes alongside it.
 
-Captures start when recording is enabled, then run every five minutes by default while CodexBar is running. The interval accepts 1 to 1,440 minutes. Reset-credit changes are recorded as soon as a usage poll detects them, independently of that interval. CodexBar does not collect during sleep or while it is closed, and it does not backfill missed captures.
+## Turning it on
 
-Background collection starts at app launch, including launch at login. You don't need to open the menu or Settings to start it.
+Enable **Record telemetry to disk** in Settings. Files go to `~/Documents/CodexBar Telemetry` unless you choose another folder. CodexBar captures when recording starts and then every five minutes by default (1 to 1,440). Retention is 90 days by default (1 to 3,650, or unlimited). Reset-credit changes are recorded as soon as a usage poll sees them. Capture runs in the background from launch, including launch at login. It doesn't run during sleep or while CodexBar is closed, and missed captures aren't backfilled.
 
-Use **Apply telemetry settings** to save the interval, retention, and destination. Editing a field or choosing a folder does not trigger recording or delete files. Interval changes preserve the credit observation baseline and schedule the next capture after the new interval.
+In Settings, **Apply telemetry settings** saves the interval, retention and folder.
 
-Applying a new destination starts a capture immediately and applies the saved retention policy to existing CodexBar files in that folder.
+### From a link
 
-## Files and retention
+Any app or page can change the settings with a `codexbar://` link:
 
-Each file contains UTF-8 [OTLP JSON](https://opentelemetry.io/docs/specs/otlp/#json-protobuf-encoding), with one JSON object per line. Metrics and logs have separate files, following the [OpenTelemetry JSON file serialization](https://opentelemetry.io/docs/specs/otel/protocol/file-exporter/#json-file-serialization):
+- `codexbar://telemetry?enabled=1&interval=5&retention=0&folder=<percent-encoded path>` accepts any subset of the four parameters. CodexBar shows each change, old value first, and applies it immediately when you click **Apply**. If any value is out of range, the whole link is rejected and CodexBar says why.
+- `codexbar://settings` opens the Settings window.
 
-```text
-codexbar-metrics-2026-10-11.jsonl
-codexbar-logs-2026-10-11.jsonl
-```
+The settings are stored under the defaults keys `telemetryEnabled`, `telemetryIntervalMinutes`, `telemetryRetentionDays` and `telemetryDirectory`, which is where Bar UI reads them.
 
-Dates use UTC. The default retention is 90 UTC calendar days, including today, and accepts 1 to 3,650 days. Choose **Unlimited retention** and apply the settings to keep files until you delete them; automatic cleanup is disabled. Limited retention removes expired CodexBar metrics and log files from the selected folder before each write. Other filenames and symbolic links are left alone. Turning recording off keeps existing files and pauses retention cleanup. Changing folders leaves files in the previous folder in place.
+## How Codex maps onto the spec
 
-The top-level objects are `resourceMetrics` and `resourceLogs`. They identify the service as `CodexBar`, include its version, and use instrumentation scope `com.gordonbeeming.CodexBar.telemetry`, version `1`. OTLP timestamps and integer values are decimal strings. Each metric is a gauge representing a captured value.
+### Limits
 
-## Account usage
+Every window in every bucket that `account/rateLimits/read` reports becomes a Limit.
 
-CodexBar records the fields returned by `account/rateLimits/read`. Every primary and secondary window in every bucket gets a separate data point, identified by `codex.bucket.id` and `codex.window`. When a multi-bucket response is present, its legacy single-bucket mirror is excluded.
+- `limit.id` is `<bucket id>:<window minutes>`, for example `codex:10080`. Codex can swap which window it calls primary and secondary, but the window length stays put.
+- When Codex reports a window without its length, the ID falls back to `<bucket id>:primary` or `<bucket id>:secondary`, and `limit.window.duration_minutes` is left out.
+- `limit.name` is the name the menu shows (`Weekly`, `Session (5h)`). Buckets other than the default `codex` one get the bucket's name added, as in `Weekly · Gpt Spark`.
+- Don't count on a five-hour window. Some plans report only the weekly one.
+
+`bar.limit.reset` fires when a Limit's reset time moves forward by at least half a window. When Codex gives no reset time, it fires when usage drops sharply instead (the same rule the celebrations use).
+
+### Tokens
+
+`bar.tokens` counts tokens Codex uses on this Mac from the moment recording starts, read from the rollout files in `sessions` and `archived_sessions` under `CODEX_HOME` (`~/.codex` by default).
+
+- CodexBar remembers how far it has read each session, keyed by the session's ID. Moving a session into `archived_sessions` doesn't count it twice, and deleting old sessions never lowers the total.
+- Each turn's usage goes to the model in that turn's `turn_context`. Usage with no turn context goes to `unknown`.
+- Codex writes the same running total again for rate-limit updates. CodexBar counts a turn only when that total changes.
+- A forked or subagent session starts with history copied from its parent. CodexBar skips that copied history because the parent already counted it.
+- Token types:
+  - `input` is Codex's `input_tokens` minus `cached_input_tokens`.
+  - `cache_write` comes from `cache_write_input_tokens`, which is also subtracted from `input` when Codex counts it there.
+  - `cache_read` is `cached_input_tokens`.
+  - `reasoning` is the reasoning part of `output` and is already included in it.
+
+The count's position and totals live in `~/Library/Application Support/CodexBar/telemetry-state.json`. Turning recording off deletes that file, so the next start gets a new `startTimeUnixNano`, which lets Bar UI tell a restart apart from a drop.
+
+### Perks
+
+Codex reset credits are `perk.kind=reset_credit`.
+
+- The `bar.perk.available` gauge holds Codex's available count. `perk.expires_at` is the earliest expiry among the available credits.
+- A credit that Codex reports as redeemed or redeeming produces `bar.perk.gone` with `perk.gone.reason=used`.
+- When the count drops for any other reason, CodexBar reports the missing credit as gone. The reason is `expired` if its expiry has passed, and left out otherwise.
+- A credit missing from a list while the count holds is not treated as gone, because Codex can return a capped list.
+
+## Extra `codex.*` records
+
+Bar UI ignores these. They keep detail that the spec doesn't cover.
 
 | Metric | Value |
 | --- | --- |
-| `codex.usage.used_percent` | Used percentage, regardless of fuel tank display mode |
-| `codex.usage.reset_time` | Window reset time, Unix seconds |
-| `codex.usage.bucket_observed` | Bucket present |
-| `codex.usage.observation_time` | Time the source response was read, Unix seconds |
-| `codex.usage.ordinary_allowed` | Included usage allowed: 1 or 0 |
-| `codex.credits.has_credits`, `codex.credits.unlimited` | Credit flags: 1 or 0 |
-| `codex.credits.balance` | Numeric credit balance |
-| `codex.spend_control.reached` | Spend control reached: 1 or 0 |
-| `codex.spend_control.remaining_percent`, `codex.spend_control.reset_time` | Individual spend limit's remaining percentage and reset time |
-| `codex.spend_control.limit`, `codex.spend_control.used` | Numeric individual spend limit and usage, when parseable |
-| `codex.reset_credits.available` | Backend-reported available reset-credit count |
-| `codex.reset_credit.observed`, `codex.reset_credit.granted_at`, `codex.reset_credit.expires_at` | Each reported reset credit, identified by its backend identifier |
+| `codex.usage.used_percent`, `codex.usage.reset_time` | Every window, identified by `codex.bucket.id` and `codex.window` |
+| `codex.usage.bucket_observed`, `codex.usage.observation_time`, `codex.usage.ordinary_allowed` | Bucket presence, when the response was read, and whether included usage is allowed |
+| `codex.credits.has_credits`, `codex.credits.unlimited`, `codex.credits.balance` | Usage-credit flags and numeric balance |
+| `codex.spend_control.*` | Individual spend limit, usage, remaining percentage and reset time |
+| `codex.reset_credits.available`, `codex.reset_credit.observed`, `codex.reset_credit.granted_at`, `codex.reset_credit.expires_at` | Reset credits by backend ID |
+| `codex.account.lifetime`, `.peak_daily`, `.current_streak`, `.longest_streak`, `.longest_running_turn`, `.daily_tokens` | The experimental `account/usage/read` summary, when Codex supports it |
 
-Missing fields produce no data point. Account metrics use the capture time as `timeUnixNano` and report the source observation time as a separate metric. They reflect the API response before the menu's display stabilization. If account data is older than two minutes, that capture omits account metrics and Settings reports that only local tokens were recorded.
+Events: `codex.usage.details` and `codex.reset_credit.details` carry plan, model and display text on each capture. `codex.reset_credit.available`, `.redeeming`, `.redeemed`, `.status_observed` and `codex.reset_credits.availability_observed` follow reset-credit status changes. `codex.account.daily_usage` covers the daily account buckets.
 
-Periodic `codex.usage.details` and `codex.reset_credit.details` logs preserve plan and model names, reported state, raw decimal strings, and credit display text. Changing values stay out of metric identity attributes, so each capture updates the same usage series.
+Account data older than two minutes is left out of a capture. Tokens are still recorded, and Settings says the account data was missing.
 
-When telemetry is enabled, CodexBar also requests the experimental `account/usage/read` method during usage refreshes. Supported versions provide `codex.account.lifetime`, `codex.account.peak_daily`, `codex.account.current_streak`, `codex.account.longest_streak`, and `codex.account.longest_running_turn` gauges. Daily usage buckets produce `codex.account.daily_tokens` points at each day's UTC start, plus `codex.account.daily_usage` logs at capture time. Historical days are emitted at the first capture and when they change; today's bucket is included at each capture. The account token metrics use `codex.token.scope=account`, separately from local totals. Older or unsupported versions can still record limits and local tokens; Settings shows the account summary error.
+## Privacy
 
-## Local token totals
-
-CodexBar reads `sessions` and `archived_sessions` under `CODEX_HOME`, or `~/.codex` by default. It takes the latest completed `token_count` event with `total_token_usage` from each rollout and deduplicates copies by the canonical thread UUID. Repeated cumulative updates within a session are not added together. For forks, inherited cumulative counts are subtracted using copied history or the referenced parent prefix. Copied subagent histories use their explicit history-start ordinal because their records receive new timestamps when copied. Unchanged files and resolved fork baselines are cached; changed files are searched backwards with bounded memory.
-
-| Metric | Value |
-| --- | --- |
-| `codex.tokens.input`, `codex.tokens.output`, `codex.tokens.total` | Sum of the latest cumulative counts across retained local sessions |
-| `codex.tokens.cached_input`, `codex.tokens.cache_write_input`, `codex.tokens.reasoning_output` | Optional counts, summed across sessions that report each field |
-| `codex.tokens.sessions` | Number of unique local sessions with token totals |
-| `codex.tokens.sessions_reporting` | Number of sessions reporting each token kind, identified by `codex.token.kind` |
-| `codex.tokens.files_skipped` | Unique session histories whose usage cannot be read or whose fork ancestry cannot be resolved |
-| `codex.tokens.observation_time` | Latest token observation time across the included sessions, Unix seconds |
-
-These metrics carry `codex.source=local_session_files` and `codex.token.scope=retained_local_sessions`. Reporting counts show when an optional field has narrower coverage. Cached input and reasoning output are already included in their corresponding input and output totals; adding them again would double count.
-
-The totals cover readable retained session files on this Mac, across accounts that have used those files. They are not account-wide totals, billing amounts, or counts for a particular quota window. Deleting session files can reduce the totals, which is why they are gauges. Local tokens can still be recorded when account usage is unavailable. Unreadable files, malformed token data, or unresolved fork histories are excluded and counted in `files_skipped`; Settings reports when the totals are partial. A broken duplicate does not count as skipped if another copy supplies that thread's usage.
-
-## Reset-credit events
-
-Log bodies contain event names such as `codex.reset_credit.available`, `codex.reset_credit.redeeming`, and `codex.reset_credit.redeemed`. Attributes include the reported status, previous observed status, and whether this is the first observation. Count changes use `codex.reset_credits.availability_observed`.
-
-Redemption is logged only when Codex explicitly reports a transition to `redeemed` from a previously observed status. A credit first seen as redeemed gets a status observation, not a new redemption event. A decreasing count or a credit disappearing from a capped list does not prove redemption. Some backends supply only an available count, so those accounts have count observations without individual redemption events. Timestamps record when CodexBar observed the state, rather than the exact time it changed on the server. Enabling recording or changing the destination starts a new observation baseline; interval and retention edits preserve it.
-
-## Privacy and exporters
-
-Telemetry excludes conversation text, tool output, account identifiers, and authentication credentials. Newly created files have owner-only permissions. Write and collection errors appear in Settings, and the next capture retries. Retention failures are reported without blocking new captures. An unfinished final record from a failed write is removed before the next append, preserving valid JSON Lines.
-
-This version writes only to local disk. Export uses the `TelemetrySink` interface, so future exporters can use the same encoded metrics and logs without changing collection.
+Telemetry leaves out conversation text, tool output, account identifiers and sign-in credentials. Files and the state file are readable only by you. Write errors show in Settings, and the next capture tries again.

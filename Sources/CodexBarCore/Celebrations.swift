@@ -78,7 +78,7 @@ public struct LimitSnapshot: Sendable {
 public let resetDropThreshold = 25.0
 public let resetFloor = 10.0
 
-private func usageDidReset(from previous: Double, to current: Double) -> Bool {
+func usageDidReset(from previous: Double, to current: Double) -> Bool {
     (previous > 0 && current == 0)
         || (previous - current > resetDropThreshold && current < resetFloor)
 }

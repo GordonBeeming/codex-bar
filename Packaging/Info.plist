@@ -12,6 +12,17 @@
     <string>6.0</string>
     <key>CFBundleIconFile</key>
     <string>AppIcon</string>
+    <key>CFBundleURLTypes</key>
+    <array>
+        <dict>
+            <key>CFBundleURLName</key>
+            <string>com.gordonbeeming.CodexBar</string>
+            <key>CFBundleURLSchemes</key>
+            <array>
+                <string>codexbar</string>
+            </array>
+        </dict>
+    </array>
     <key>CFBundleName</key>
     <string>CodexBar</string>
     <key>CFBundlePackageType</key>

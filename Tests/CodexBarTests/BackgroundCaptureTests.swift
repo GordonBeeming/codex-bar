@@ -23,7 +23,8 @@ final class BackgroundCaptureTests: XCTestCase {
         let snapshot = UsageSnapshot(limits: UsageLimitMapper.limits(from: rates), planType: "test", rateLimits: rates,
                                      tokenUsage: nil, tokenUsageError: "Test source has no account summary")
         let model = UsageViewModel(client: FixtureClient(snapshot: snapshot), pollInterval: .milliseconds(40),
-                                  captureInterval: { _ in .milliseconds(50) }, codexHome: directory.appending(path: "empty-home"))
+                                  captureInterval: { _ in .milliseconds(50) }, codexHome: directory.appending(path: "empty-home"),
+                                  telemetryStateURL: directory.appending(path: "state/telemetry-state.json"))
         defer { model.stop() }
         _ = CodexBarApp(model: model, settings: settings)
         let clock = ContinuousClock()
