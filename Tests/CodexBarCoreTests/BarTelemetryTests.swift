@@ -296,6 +296,25 @@ final class BarTelemetryTests: XCTestCase {
         XCTAssertNil(points[1].attributes["perk.expires_at"])
     }
 
+    func testPerkGaugeNeverNamesMoreCreditsThanTheCount() throws {
+        let points = try perkPoints(#"""
+        {"rateLimitResetCredits":{"availableCount":1,"credits":[
+          {"id":"later","status":"available","resetType":"x","grantedAt":1,"expiresAt":3000},
+          {"id":"sooner","status":"available","resetType":"x","grantedAt":1,"expiresAt":2000}]}}
+        """#)
+        XCTAssertEqual(points.map(\.value), ["1"])
+        XCTAssertEqual(points[0].attributes["perk.id"], "sooner")
+    }
+
+    func testPerkGaugeWritesZeroWhenTheCountIsZeroEvenIfCreditsAreListed() throws {
+        let points = try perkPoints(#"""
+        {"rateLimitResetCredits":{"availableCount":0,"credits":[
+          {"id":"a","status":"available","resetType":"x","grantedAt":1,"expiresAt":2000}]}}
+        """#)
+        XCTAssertEqual(points.map(\.value), ["0"])
+        XCTAssertNil(points[0].attributes["perk.id"])
+    }
+
     func testPerkGaugeStillWritesZeroWhenThereAreNoCredits() throws {
         let points = try perkPoints(#"{"rateLimitResetCredits":{"availableCount":0,"credits":[]}}"#)
         XCTAssertEqual(points.map(\.value), ["0"])
