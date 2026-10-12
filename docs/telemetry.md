@@ -54,6 +54,7 @@ Codex reset credits are `perk.kind=reset_credit`.
 - A credit that Codex reports as redeemed or redeeming produces `bar.perk.gone` with `perk.gone.reason=used`.
 - When the count drops for any other reason, CodexBar reports the missing credit as gone. The reason is `expired` if its expiry has passed, and left out otherwise.
 - A credit missing from a list while the count holds is not treated as gone, because Codex can return a capped list.
+- If the count moves by more credits than CodexBar can name from the list, the rest go into one `bar.perk.available` or `bar.perk.gone` event with no `perk.id`. Its `perk.quantity` is how many credits it covers. Events for a named credit leave `perk.quantity` out, which means 1.
 
 ## Extra `codex.*` records
 

@@ -104,10 +104,11 @@ enum BarEvents {
         return usageDidReset(from: before.utilization, to: limit.utilization)
     }
 
-    static func perkAttributes(id: String?, expiresAt: TimeInterval?) -> [OTLPTelemetryEncoder.Attribute] {
+    static func perkAttributes(id: String?, expiresAt: TimeInterval?, quantity: Int? = nil) -> [OTLPTelemetryEncoder.Attribute] {
         var attributes: [OTLPTelemetryEncoder.Attribute] = [.init("perk.kind", "reset_credit")]
         if let id { attributes.append(.init("perk.id", id)) }
         if let expiresAt, expiresAt.isFinite { attributes.append(.init("perk.expires_at", Int(expiresAt))) }
+        if let quantity { attributes.append(.init("perk.quantity", quantity)) }
         return attributes
     }
 
@@ -146,8 +147,9 @@ enum BarEvents {
             kept[id] = nil
             goneBudget -= 1
         }
+        // Credits that went without a row to name them are one event for the whole count.
         if goneBudget > 0 {
-            events.append(.init(name: "bar.perk.gone", attributes: perkAttributes(id: nil, expiresAt: nil)))
+            events.append(.init(name: "bar.perk.gone", attributes: perkAttributes(id: nil, expiresAt: nil, quantity: goneBudget)))
         }
 
         // Only a rise in the count is a new perk. A capped list can rotate which credits it
@@ -162,7 +164,7 @@ enum BarEvents {
             kept.updateValue(expiresAt, forKey: id)
         }
         if appearBudget > 0 {
-            events.append(.init(name: "bar.perk.available", attributes: perkAttributes(id: nil, expiresAt: nil)))
+            events.append(.init(name: "bar.perk.available", attributes: perkAttributes(id: nil, expiresAt: nil, quantity: appearBudget)))
         }
         // An expiry reported late, or moved, must be the one a later disappearance is judged by.
         for (id, expiresAt) in availableNow {

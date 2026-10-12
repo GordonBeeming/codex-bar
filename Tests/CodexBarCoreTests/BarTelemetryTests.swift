@@ -244,6 +244,13 @@ final class BarTelemetryTests: XCTestCase {
 
         let countOnly = BarEvents.perkEvents(previous: ObservedPerks(count: 1, available: [:]), summary: summary(3, nil), now: now)
         XCTAssertEqual(countOnly.events.map(\.name), ["bar.perk.available"])
+        // An unnamed event stands for every credit the count moved by; a named one is one credit.
+        XCTAssertTrue(countOnly.events[0].attributes.contains { $0.key == "perk.quantity" && $0.value.intValue == "2" })
+        XCTAssertFalse(first.events.contains { $0.attributes.contains { $0.key == "perk.quantity" } })
+        let countDrop = BarEvents.perkEvents(previous: ObservedPerks(count: 3, available: ["a": 2_000]), summary: summary(0, nil), now: now)
+        XCTAssertEqual(countDrop.events.map(\.name), ["bar.perk.gone", "bar.perk.gone"])
+        XCTAssertFalse(countDrop.events[0].attributes.contains { $0.key == "perk.quantity" })
+        XCTAssertTrue(countDrop.events[1].attributes.contains { $0.key == "perk.quantity" && $0.value.intValue == "2" })
     }
 
     func testPerkGaugeCountsAvailableCreditsWithEarliestExpiry() throws {
