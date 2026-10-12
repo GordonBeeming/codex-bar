@@ -171,6 +171,36 @@ final class BarTelemetryTests: XCTestCase {
         XCTAssertEqual(saved.startAnnounced, true)
     }
 
+    func testTrackingStartsBeforeTheFirstPerkEventsAndPerksFollowTheAccount() async throws {
+        let sink = RecordingSink()
+        let rec = recorder(sink)
+        let first = try result(#"{"accountId":"a","rateLimitResetCredits":{"availableCount":2,"credits":[{"id":"x","status":"available","resetType":"r","grantedAt":1},{"id":"y","status":"available","resetType":"r","grantedAt":1}]}}"#)
+        try await rec.observeResetCredits(result: first, planType: nil, at: Date())
+        let other = try result(#"{"accountId":"b","rateLimitResetCredits":{"availableCount":0,"credits":[]}}"#)
+        try await rec.observeResetCredits(result: other, planType: nil, at: Date())
+        try await rec.recordSample(result: nil, planType: nil, observedAt: nil, at: Date())
+        let names = try eventNames(await sink.lines).filter { $0.hasPrefix("bar.") }
+        // Switching to an account without credits isn't the first account's credits going.
+        XCTAssertEqual(names, ["bar.tracking.started", "bar.perk.available", "bar.perk.available"])
+    }
+
+    func testAnUnreadableSessionsFolderDoesNotStopAccountTelemetry() async throws {
+        let sessions = home.appending(path: "codex/sessions/2026")
+        try FileManager.default.createDirectory(at: sessions, withIntermediateDirectories: true)
+        try FileManager.default.setAttributes([.posixPermissions: 0o000], ofItemAtPath: sessions.path)
+        defer {
+            do { try FileManager.default.setAttributes([.posixPermissions: 0o700], ofItemAtPath: sessions.path) }
+            catch { XCTFail("Couldn't restore fixture permissions: \(error)") }
+        }
+        let sink = RecordingSink()
+        let rec = recorder(sink)
+        try await rec.recordSample(result: try weekly(10, resetsAt: 1_800_000_000), planType: nil, observedAt: Date(), at: Date())
+        let lines = await sink.lines
+        XCTAssertTrue(String(decoding: lines[0], as: UTF8.self).contains("bar.limit.utilization"))
+        let warnings = await rec.exportWarnings()
+        XCTAssertTrue(warnings.contains { $0.hasPrefix("Couldn't start counting Codex tokens") })
+    }
+
     private func tokenMetric(_ line: Data?) throws -> [String: Any]? {
         guard let line else { return nil }
         let resource = (try json(line)["resourceMetrics"] as? [[String: Any]])?.first
@@ -201,6 +231,10 @@ final class BarTelemetryTests: XCTestCase {
         // A capped list that drops a row while the count holds is not a perk going.
         let capped = BarEvents.perkEvents(previous: first.observed, summary: summary(2, [("a", "available", 2_000)]), now: now)
         XCTAssertTrue(capped.events.isEmpty)
+        // A capped list rotating to a credit it hid before is not a new perk.
+        let rotated = BarEvents.perkEvents(previous: ObservedPerks(scope: nil, count: 1, available: ["a": 2_000]),
+                                           summary: summary(1, [("z", "available", 3_000)]), now: now)
+        XCTAssertTrue(rotated.events.isEmpty)
         // An expiry Codex reports only later is the one a disappearance is judged by.
         let noExpiry = BarEvents.perkEvents(previous: nil, summary: summary(1, [("c", "available", nil)]), now: now)
         let laterExpiry = BarEvents.perkEvents(previous: noExpiry.observed, summary: summary(1, [("c", "available", 900)]), now: now)

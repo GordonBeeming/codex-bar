@@ -251,7 +251,10 @@ public struct SessionTokenScanner: Sendable {
             }
         case .sessionMeta:
             guard let meta = Self.decode(SessionMetaLine.self, line)?.payload else { return }
-            if let start = meta.subagent_history_start_ordinal {
+            // Copied rows keep the parent's ordinals, so an explicit boundary is exact.
+            // Copies can carry new timestamps, so the creation time is only a fallback.
+            if let start = meta.subagent_history_start_ordinal ?? meta.history_base?.end_ordinal_exclusive
+                ?? meta.forked_from_ordinal_exclusive {
                 cursor.copiedBelowOrdinal = start
             } else if meta.forked_from_id != nil || meta.history_base != nil {
                 cursor.copiedThrough = meta.timestamp.flatMap(Self.date)
@@ -398,11 +401,12 @@ public struct SessionTokenScanner: Sendable {
     }
 
     private struct SessionMetaLine: Decodable {
-        struct Present: Decodable { init(from decoder: any Decoder) throws {} }
+        struct HistoryBase: Decodable { let end_ordinal_exclusive: UInt64? }
         struct Payload: Decodable {
             let timestamp: String?
             let forked_from_id: String?
-            let history_base: Present?
+            let forked_from_ordinal_exclusive: UInt64?
+            let history_base: HistoryBase?
             let subagent_history_start_ordinal: UInt64?
         }
         let payload: Payload

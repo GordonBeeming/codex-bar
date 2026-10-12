@@ -75,9 +75,7 @@ public actor TelemetryRecorder {
             } catch is CancellationError { throw CancellationError() }
             catch { warnings.append("Couldn't read Codex sessions: \(error.localizedDescription)") }
         } else {
-            current.scan = try scanner.baseline(now: date)
-            current.limits = nil
-            current.startAnnounced = false
+            try startTracking(&current, at: date)
         }
         if current.startAnnounced == false {
             events.append(BarEvents.trackingStarted(intervalMinutes: intervalMinutes))
@@ -142,8 +140,23 @@ public actor TelemetryRecorder {
         let previousCount = changedAccount ? nil : availableCount
         var statuses = changedAccount ? [:] : creditStatuses
         guard let summary = result.rateLimitResetCredits else { return }
-        let perks = BarEvents.perkEvents(previous: loadState().perks, summary: summary, now: date)
-        var events = perks.events
+        // Polls can run before the first capture, so tracking may start here; its event
+        // has to come before anything else in the epoch.
+        var current = loadState()
+        if current.scan == nil {
+            try startTracking(&current, at: date)
+            if current != loadState() { try save(current) }
+        }
+        var events: [OTLPTelemetryEncoder.Event] = []
+        if current.startAnnounced == false {
+            events.append(BarEvents.trackingStarted(intervalMinutes: intervalMinutes))
+        }
+        // Another account's perks say nothing about this one's; a switch starts afresh.
+        // Perks saved before scopes were recorded belong to whichever account is current.
+        let stored = current.perks.flatMap { $0.scope == nil || $0.scope == scope ? $0 : nil }
+        var perks = BarEvents.perkEvents(previous: stored, summary: summary, now: date)
+        perks.observed.scope = scope
+        events += perks.events
         var common = [OTLPTelemetryEncoder.Attribute("codex.source", "account/rateLimits/read")]
         if let planType { common.append(.init("codex.plan_type", planType)) }
         if summary.availableCount != previousCount {
@@ -180,16 +193,29 @@ public actor TelemetryRecorder {
             try activity.check()
             try await sink.export(data, signal: .logs, at: date, retentionDays: retentionDays, activity: activity)
         }
-        if perks.observed != loadState().perks {
-            var saved = loadState()
-            saved.perks = perks.observed
-            try save(saved)
-        }
+        var saved = loadState()
+        saved.perks = perks.observed
+        if !events.isEmpty, saved.startAnnounced == false { saved.startAnnounced = true }
+        if saved != loadState() { try save(saved) }
         // Missing detail rows are not evidence of redemption: the backend can
         // return a capped list or only the available count.
         accountScope = scope
         availableCount = summary.availableCount
         creditStatuses = statuses
+    }
+
+    /// Takes the token baseline that starts a tracking epoch. A failure is reported and left
+    /// for the next capture to retry, so it never blocks the account telemetry.
+    private func startTracking(_ state: inout TelemetryState, at date: Date) throws {
+        do {
+            state.scan = try scanner.baseline(now: date)
+            state.limits = nil
+            state.startAnnounced = false
+        } catch is CancellationError {
+            throw CancellationError()
+        } catch {
+            warnings.append("Couldn't start counting Codex tokens: \(error.localizedDescription)")
+        }
     }
 
     private func loadState() -> TelemetryState {

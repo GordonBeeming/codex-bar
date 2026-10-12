@@ -140,6 +140,18 @@ final class SessionTokenScannerTests: XCTestCase {
         XCTAssertEqual(state.totals["gpt-5.5"]?.input, 30)
     }
 
+    func testHistoryBaseForkSkipsCopiedRowsByOrdinalEvenWithNewTimestamps() throws {
+        var state = try scanner.baseline(now: Date())
+        try append([
+            meta(#","forked_from_id":"\#(sessionID)","history_base":{"thread_id":"\#(sessionID)","end_ordinal_exclusive":50}"#),
+            context("gpt-5.5"),
+            tokens(total: (1_000, 0, 100, 0), last: (1_000, 0, 100, 0), at: "10:00:01", ordinal: 40),
+            tokens(total: (1_020, 0, 102, 0), last: (20, 0, 2, 0), at: "10:00:02", ordinal: 55)
+        ], to: file(forkID))
+        try scanner.scan(&state)
+        XCTAssertEqual(state.totals["gpt-5.5"]?.input, 20)
+    }
+
     func testTokensWithoutTurnContextAreAttributedToUnknownModel() throws {
         var state = try scanner.baseline(now: Date())
         try append([meta(), tokens(total: (10, 0, 1, 0), last: (10, 0, 1, 0))], to: file(sessionID))

@@ -51,6 +51,8 @@ struct ObservedLimit: Codable, Sendable, Equatable {
 }
 
 struct ObservedPerks: Codable, Sendable, Equatable {
+    /// The account (or plan, when Codex gives no account ID) these perks belong to.
+    var scope: String?
     var count: Int
     /// Available reset credits by ID, with their expiry when Codex reports one.
     var available: [String: TimeInterval?]
@@ -117,7 +119,7 @@ enum BarEvents {
     static func perkEvents(
         previous: ObservedPerks?, summary: ResetCreditsSummary, now: Date
     ) -> (events: [OTLPTelemetryEncoder.Event], observed: ObservedPerks) {
-        let previous = previous ?? ObservedPerks(count: 0, available: [:])
+        let previous = previous ?? ObservedPerks(scope: nil, count: 0, available: [:])
         let credits = summary.credits ?? []
         let statuses = Dictionary(credits.map { ($0.id, $0.status) }, uniquingKeysWith: { _, last in last })
         let availableNow = Dictionary(
@@ -148,19 +150,24 @@ enum BarEvents {
             events.append(.init(name: "bar.perk.gone", attributes: perkAttributes(id: nil, expiresAt: nil)))
         }
 
-        let appeared = availableNow.keys.filter { kept[$0] == nil }.sorted()
-        for id in appeared {
+        // Only a rise in the count is a new perk. A capped list can rotate which credits it
+        // shows, so an ID seen for the first time without a rise is recorded silently.
+        var appearBudget = summary.availableCount - previous.count + used.count
+        for id in availableNow.keys.filter({ kept[$0] == nil }).sorted() {
             let expiresAt = availableNow[id] ?? nil
-            events.append(.init(name: "bar.perk.available", attributes: perkAttributes(id: id, expiresAt: expiresAt)))
+            if appearBudget > 0 {
+                events.append(.init(name: "bar.perk.available", attributes: perkAttributes(id: id, expiresAt: expiresAt)))
+                appearBudget -= 1
+            }
             kept.updateValue(expiresAt, forKey: id)
         }
-        if summary.availableCount - previous.count + used.count - appeared.count > 0 {
+        if appearBudget > 0 {
             events.append(.init(name: "bar.perk.available", attributes: perkAttributes(id: nil, expiresAt: nil)))
         }
         // An expiry reported late, or moved, must be the one a later disappearance is judged by.
         for (id, expiresAt) in availableNow {
             if let expiresAt { kept.updateValue(expiresAt, forKey: id) }
         }
-        return (events, ObservedPerks(count: summary.availableCount, available: kept))
+        return (events, ObservedPerks(scope: previous.scope, count: summary.availableCount, available: kept))
     }
 }
