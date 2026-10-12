@@ -50,7 +50,7 @@ The count's position and totals live in `~/Library/Application Support/CodexBar/
 
 Codex reset credits are `perk.kind=reset_credit`.
 
-- The `bar.perk.available` gauge holds Codex's available count. `perk.expires_at` is the earliest expiry among the available credits.
+- The `bar.perk.available` gauge has one point per available credit, each with value 1, the credit's `perk.id` and its `perk.expires_at`. The points add up to Codex's available count. If the count is higher than the credits the list names, the rest go in one point with no `perk.id`. If the list names more available credits than the count, only that many are written, soonest expiry first. With no credits, the gauge is a single 0 point.
 - A credit that Codex reports as redeemed or redeeming produces `bar.perk.gone` with `perk.gone.reason=used`.
 - When the count drops for any other reason, CodexBar reports the missing credit as gone. The reason is `expired` if its expiry has passed, and left out otherwise.
 - A credit missing from a list while the count holds is not treated as gone, because Codex can return a capped list.

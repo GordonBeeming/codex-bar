@@ -128,11 +128,34 @@ public enum OTLPTelemetryEncoder {
                 barMetrics.append(Metric(name: "bar.limit.resets_at", unit: "s", gauge: Gauge(dataPoints: resetsAt)))
             }
             if let resets = result.rateLimitResetCredits {
-                let expiry = (resets.credits ?? []).filter { $0.status == "available" }.compactMap(\.expiresAt).min()
-                barMetrics.append(Metric(name: "bar.perk.available", unit: "{perk}", gauge: Gauge(dataPoints: [Point(
-                    attributes: BarEvents.perkAttributes(id: nil, expiresAt: expiry), timeUnixNano: timestamp,
-                    asDouble: nil, asInt: String(resets.availableCount)
-                )])))
+                // One point per credit so Bar UI sees each expiry. Bar UI sums the points, so any
+                // credits the list doesn't itemise go in an ID-less point to keep the total right;
+                // with none at all a single 0 point is how Bar UI sees them run out.
+                // `availableCount` is the authority: when the list holds more available rows than it,
+                // only that many are named, soonest expiry first, so the points never sum past it.
+                let available: [ResetCredit] = (resets.credits ?? []).filter { $0.status == "available" }
+                let authoritative = max(resets.availableCount, 0)
+                let listed: [ResetCredit]
+                if available.count <= authoritative {
+                    listed = available
+                } else {
+                    let soonestFirst: [ResetCredit] = available.sorted { (lhs: ResetCredit, rhs: ResetCredit) -> Bool in
+                        let left: Double = lhs.expiresAt ?? .infinity
+                        let right: Double = rhs.expiresAt ?? .infinity
+                        return left < right
+                    }
+                    listed = Array(soonestFirst.prefix(authoritative))
+                }
+                var perks = listed.map { credit in
+                    Point(attributes: BarEvents.perkAttributes(id: credit.id, expiresAt: credit.expiresAt), timeUnixNano: timestamp,
+                          asDouble: nil, asInt: "1")
+                }
+                let unlisted = max(resets.availableCount - listed.count, 0)
+                if unlisted > 0 || perks.isEmpty {
+                    perks.append(Point(attributes: BarEvents.perkAttributes(id: nil, expiresAt: nil), timeUnixNano: timestamp,
+                                       asDouble: nil, asInt: String(unlisted)))
+                }
+                barMetrics.append(Metric(name: "bar.perk.available", unit: "{perk}", gauge: Gauge(dataPoints: perks)))
             }
         }
         if let tokens, !tokens.totals.isEmpty {

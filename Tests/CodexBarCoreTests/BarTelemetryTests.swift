@@ -253,18 +253,73 @@ final class BarTelemetryTests: XCTestCase {
         XCTAssertTrue(countDrop.events[1].attributes.contains { $0.key == "perk.quantity" && $0.value.intValue == "2" })
     }
 
-    func testPerkGaugeCountsAvailableCreditsWithEarliestExpiry() throws {
-        let usage = try result(#"""
+    /// The `bar.perk.available` points as (value, attributes by key), in the order they were written.
+    private func perkPoints(_ json: String) throws -> [(value: String, attributes: [String: String])] {
+        let usage = try result(json)
+        let data = try OTLPTelemetryEncoder.metrics(result: usage, planType: nil, observedAt: nil, capturedAt: Date(), serviceVersion: "t")
+        let root = try XCTUnwrap(JSONSerialization.jsonObject(with: data) as? [String: Any])
+        let metrics = try XCTUnwrap(((((root["resourceMetrics"] as? [[String: Any]])?.first?["scopeMetrics"]) as? [[String: Any]])?
+            .flatMap { ($0["metrics"] as? [[String: Any]]) ?? [] }))
+        let metric = try XCTUnwrap(metrics.first { $0["name"] as? String == "bar.perk.available" })
+        let points = try XCTUnwrap((metric["gauge"] as? [String: Any])?["dataPoints"] as? [[String: Any]])
+        return points.map { point in
+            var attributes: [String: String] = [:]
+            for attribute in (point["attributes"] as? [[String: Any]]) ?? [] {
+                let value = attribute["value"] as? [String: Any]
+                attributes[attribute["key"] as? String ?? ""] = (value?["stringValue"] ?? value?["intValue"]) as? String
+            }
+            return (point["asInt"] as? String ?? "", attributes)
+        }
+    }
+
+    func testPerkGaugeWritesOnePointPerAvailableCredit() throws {
+        let points = try perkPoints(#"""
         {"rateLimitResetCredits":{"availableCount":2,"credits":[
           {"id":"a","status":"available","resetType":"x","grantedAt":1,"expiresAt":2000},
           {"id":"b","status":"available","resetType":"x","grantedAt":1,"expiresAt":1500},
           {"id":"c","status":"redeemed","resetType":"x","grantedAt":1,"expiresAt":100}]}}
         """#)
-        let data = try OTLPTelemetryEncoder.metrics(result: usage, planType: nil, observedAt: nil, capturedAt: Date(), serviceVersion: "t")
-        let text = String(decoding: data, as: UTF8.self)
-        XCTAssertTrue(text.contains(#""name":"bar.perk.available""#))
-        XCTAssertTrue(text.contains(#"{"key":"perk.expires_at","value":{"intValue":"1500"}}"#))
-        XCTAssertTrue(text.contains(#"{"key":"perk.kind","value":{"stringValue":"reset_credit"}}"#))
+        XCTAssertEqual(points.map(\.value), ["1", "1"])
+        XCTAssertEqual(points.map { $0.attributes["perk.id"] }, ["a", "b"])
+        XCTAssertEqual(points.map { $0.attributes["perk.expires_at"] }, ["2000", "1500"])
+        XCTAssertEqual(points.map { $0.attributes["perk.kind"] }, ["reset_credit", "reset_credit"])
+    }
+
+    func testPerkGaugeKeepsTheTotalWhenTheListIsShorterThanTheCount() throws {
+        let points = try perkPoints(#"""
+        {"rateLimitResetCredits":{"availableCount":3,"credits":[
+          {"id":"a","status":"available","resetType":"x","grantedAt":1,"expiresAt":2000}]}}
+        """#)
+        XCTAssertEqual(points.map(\.value), ["1", "2"])
+        XCTAssertEqual(points[0].attributes["perk.id"], "a")
+        XCTAssertNil(points[1].attributes["perk.id"])
+        XCTAssertNil(points[1].attributes["perk.expires_at"])
+    }
+
+    func testPerkGaugeNeverNamesMoreCreditsThanTheCount() throws {
+        let points = try perkPoints(#"""
+        {"rateLimitResetCredits":{"availableCount":1,"credits":[
+          {"id":"later","status":"available","resetType":"x","grantedAt":1,"expiresAt":3000},
+          {"id":"sooner","status":"available","resetType":"x","grantedAt":1,"expiresAt":2000}]}}
+        """#)
+        XCTAssertEqual(points.map(\.value), ["1"])
+        XCTAssertEqual(points[0].attributes["perk.id"], "sooner")
+    }
+
+    func testPerkGaugeWritesZeroWhenTheCountIsZeroEvenIfCreditsAreListed() throws {
+        let points = try perkPoints(#"""
+        {"rateLimitResetCredits":{"availableCount":0,"credits":[
+          {"id":"a","status":"available","resetType":"x","grantedAt":1,"expiresAt":2000}]}}
+        """#)
+        XCTAssertEqual(points.map(\.value), ["0"])
+        XCTAssertNil(points[0].attributes["perk.id"])
+    }
+
+    func testPerkGaugeStillWritesZeroWhenThereAreNoCredits() throws {
+        let points = try perkPoints(#"{"rateLimitResetCredits":{"availableCount":0,"credits":[]}}"#)
+        XCTAssertEqual(points.map(\.value), ["0"])
+        XCTAssertNil(points[0].attributes["perk.id"])
+        XCTAssertEqual(points[0].attributes["perk.kind"], "reset_credit")
     }
 
     func testTelemetryURLAcceptsAnySubsetAndRejectsTheWholeRequestOnABadValue() throws {
