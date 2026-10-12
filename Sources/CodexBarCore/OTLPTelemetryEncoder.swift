@@ -23,21 +23,28 @@ public enum OTLPTelemetryEncoder {
     private struct Resource: Encodable { let attributes: [Attribute] }
     private struct Scope: Encodable {
         let name = "com.gordonbeeming.CodexBar.telemetry"
-        let version = "1"
+        let version: String
     }
     private struct Point: Encodable {
         let attributes: [Attribute]
+        var startTimeUnixNano: String? = nil
         let timeUnixNano: String
         let asDouble: Double?
         let asInt: String?
     }
     private struct Gauge: Encodable { let dataPoints: [Point] }
+    private struct Sum: Encodable {
+        let dataPoints: [Point]
+        let aggregationTemporality = 2
+        let isMonotonic = true
+    }
     private struct Metric: Encodable {
         let name: String
         let unit: String
-        let gauge: Gauge
+        var gauge: Gauge?
+        var sum: Sum?
     }
-    private struct ScopeMetrics: Encodable { let scope = Scope(); let metrics: [Metric] }
+    private struct ScopeMetrics: Encodable { let scope: Scope; let metrics: [Metric] }
     private struct ResourceMetrics: Encodable { let resource: Resource; let scopeMetrics: [ScopeMetrics] }
     private struct MetricsData: Encodable { let resourceMetrics: [ResourceMetrics] }
 
@@ -50,16 +57,16 @@ public enum OTLPTelemetryEncoder {
         let observedTimeUnixNano: String
         let severityNumber = 9
         let severityText = "INFO"
-        let body: Value
+        let eventName: String
         let attributes: [Attribute]
     }
-    private struct ScopeLogs: Encodable { let scope = Scope(); let logRecords: [LogRecord] }
+    private struct ScopeLogs: Encodable { let scope: Scope; let logRecords: [LogRecord] }
     private struct ResourceLogs: Encodable { let resource: Resource; let scopeLogs: [ScopeLogs] }
     private struct LogsData: Encodable { let resourceLogs: [ResourceLogs] }
 
     public static func metrics(
         result: RateLimitsResult?, planType: String?, observedAt: Date?, capturedAt: Date,
-        serviceVersion: String, localTokens: LocalTokenTotals? = nil, accountTokens: AccountTokenUsage? = nil
+        serviceVersion: String, tokens: SessionScanState? = nil, accountTokens: AccountTokenUsage? = nil
     ) throws -> Data {
         var points: [String: (unit: String, points: [Point])] = [:]
         let timestamp = try nanos(capturedAt)
@@ -105,6 +112,44 @@ public enum OTLPTelemetryEncoder {
                 if let used = Double(spend.used) { add("codex.spend_control.used", used, attributes: attributes) }
             }
         }
+        var barMetrics: [Metric] = []
+        if let result {
+            let limits = BarLimit.limits(from: result)
+            let utilization = limits.map {
+                Point(attributes: $0.attributes, timeUnixNano: timestamp, asDouble: $0.utilization, asInt: nil)
+            }
+            let resetsAt = limits.compactMap { limit in
+                limit.resetsAt.map { Point(attributes: limit.attributes, timeUnixNano: timestamp, asDouble: nil, asInt: String(Int64($0))) }
+            }
+            if !utilization.isEmpty {
+                barMetrics.append(Metric(name: "bar.limit.utilization", unit: "%", gauge: Gauge(dataPoints: utilization)))
+            }
+            if !resetsAt.isEmpty {
+                barMetrics.append(Metric(name: "bar.limit.resets_at", unit: "s", gauge: Gauge(dataPoints: resetsAt)))
+            }
+            if let resets = result.rateLimitResetCredits {
+                let expiry = (resets.credits ?? []).filter { $0.status == "available" }.compactMap(\.expiresAt).min()
+                barMetrics.append(Metric(name: "bar.perk.available", unit: "{perk}", gauge: Gauge(dataPoints: [Point(
+                    attributes: BarEvents.perkAttributes(id: nil, expiresAt: expiry), timeUnixNano: timestamp,
+                    asDouble: nil, asInt: String(resets.availableCount)
+                )])))
+            }
+        }
+        if let tokens, !tokens.totals.isEmpty {
+            let start = try nanos(tokens.countingSince)
+            let points = tokens.totals.keys.sorted().flatMap { model -> [Point] in
+                guard let counts = tokens.totals[model] else { return [] }
+                let byType: [(String, Int64)] = [
+                    ("input", counts.input), ("cache_read", counts.cacheRead), ("cache_write", counts.cacheWrite),
+                    ("output", counts.output), ("reasoning", counts.reasoning)
+                ]
+                return byType.map { type, value in
+                    Point(attributes: [.init("model", model), .init("token.type", type)], startTimeUnixNano: start,
+                          timeUnixNano: timestamp, asDouble: nil, asInt: String(value))
+                }
+            }
+            barMetrics.append(Metric(name: "bar.tokens", unit: "{token}", sum: Sum(dataPoints: points)))
+        }
         if let allowed = result?.ordinaryUsageAllowed {
             add("codex.usage.ordinary_allowed", allowed ? 1 : 0)
         }
@@ -115,35 +160,6 @@ public enum OTLPTelemetryEncoder {
                 add("codex.reset_credit.observed", 1, attributes: attributes)
                 add("codex.reset_credit.granted_at", credit.grantedAt, unit: "s", attributes: attributes)
                 if let expiry = credit.expiresAt { add("codex.reset_credit.expires_at", expiry, unit: "s", attributes: attributes) }
-            }
-        }
-        if let localTokens {
-            let attributes: [Attribute] = [
-                .init("codex.source", "local_session_files"),
-                .init("codex.token.scope", "retained_local_sessions")
-            ]
-            if let observedAt = localTokens.latestObservation {
-                points["codex.tokens.observation_time"] = ("s", [Point(
-                    attributes: attributes, timeUnixNano: timestamp,
-                    asDouble: observedAt.timeIntervalSince1970, asInt: nil
-                )])
-            }
-            points["codex.tokens.sessions"] = ("{session}", [Point(
-                attributes: attributes, timeUnixNano: timestamp, asDouble: nil, asInt: String(localTokens.sessionCount)
-            )])
-            points["codex.tokens.files_skipped"] = ("{file}", [Point(
-                attributes: attributes, timeUnixNano: timestamp, asDouble: nil, asInt: String(localTokens.skippedFiles)
-            )])
-            points["codex.tokens.sessions_reporting"] = ("{session}", localTokens.counts.keys.sorted().compactMap { kind in
-                guard let count = localTokens.counts[kind] else { return nil }
-                return Point(attributes: attributes + [.init("codex.token.kind", kind)], timeUnixNano: timestamp,
-                             asDouble: nil, asInt: String(count.sessionsReporting))
-            })
-            for (kind, count) in localTokens.counts {
-                points["codex.tokens.\(kind)"] = ("{token}", [Point(
-                    attributes: attributes,
-                    timeUnixNano: timestamp, asDouble: nil, asInt: String(count.value)
-                )])
             }
         }
         if let accountTokens {
@@ -167,19 +183,18 @@ public enum OTLPTelemetryEncoder {
             }
             if !daily.isEmpty { points["codex.account.daily_tokens"] = ("{token}", daily) }
         }
-        let metrics = points.keys.sorted().compactMap { name -> Metric? in
+        let metrics = barMetrics + points.keys.sorted().compactMap { name -> Metric? in
             guard let entry = points[name] else { return nil }
             return Metric(name: name, unit: entry.unit, gauge: Gauge(dataPoints: entry.points))
         }
         return try encode(MetricsData(resourceMetrics: [ResourceMetrics(
-            resource: resource(serviceVersion), scopeMetrics: [ScopeMetrics(metrics: metrics)]
+            resource: resource(serviceVersion), scopeMetrics: [ScopeMetrics(scope: Scope(version: serviceVersion), metrics: metrics)]
         )]))
     }
 
     static func sampleDetails(
-        result: RateLimitsResult, planType: String?, at date: Date, serviceVersion: String,
-        accountTokens: AccountTokenUsage? = nil
-    ) throws -> Data {
+        result: RateLimitsResult, planType: String?, accountTokens: AccountTokenUsage? = nil
+    ) -> [Event] {
         var events: [Event] = []
         for (id, bucket) in result.orderedBuckets {
             var attributes: [Attribute] = [.init("codex.bucket.id", id)]
@@ -208,22 +223,28 @@ public enum OTLPTelemetryEncoder {
                 .init("codex.usage.tokens", Int(bucket.tokens))
             ]))
         }
-        return try logs(events, at: date, serviceVersion: serviceVersion)
+        return events
     }
 
     static func logs(_ events: [Event], at date: Date, serviceVersion: String) throws -> Data {
         let timestamp = try nanos(date)
         let records = events.map {
-            LogRecord(timeUnixNano: timestamp, observedTimeUnixNano: timestamp,
-                      body: Value(stringValue: $0.name), attributes: $0.attributes)
+            LogRecord(timeUnixNano: timestamp, observedTimeUnixNano: timestamp, eventName: $0.name, attributes: $0.attributes)
         }
         return try encode(LogsData(resourceLogs: [ResourceLogs(
-            resource: resource(serviceVersion), scopeLogs: [ScopeLogs(logRecords: records)]
+            resource: resource(serviceVersion), scopeLogs: [ScopeLogs(scope: Scope(version: serviceVersion), logRecords: records)]
         )]))
     }
 
+    // Looked up once: hostName can block on a slow network.
+    private static let hostName = ProcessInfo.processInfo.hostName
+
     private static func resource(_ version: String) -> Resource {
-        Resource(attributes: [Attribute("service.name", "CodexBar"), Attribute("service.version", version)])
+        Resource(attributes: [
+            Attribute("service.name", "codexbar"), Attribute("service.version", version),
+            Attribute("host.name", hostName), Attribute("os.type", "darwin"),
+            Attribute("bar.spec.version", barSpecVersion)
+        ])
     }
 
     private static func nanos(_ date: Date) throws -> String {

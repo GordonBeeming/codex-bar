@@ -109,6 +109,7 @@ struct MenuBarLabelView: View {
     let model: UsageViewModel
     let settings: AppSettings
     let celebrations: CelebrationController
+    @Environment(\.openSettings) private var openSettings
 
     var body: some View {
         let displayedLimit = menuBarLimit(
@@ -122,6 +123,9 @@ struct MenuBarLabelView: View {
             severity: displayedLimit.map { settings.thresholds.resolve(for: $0) } ?? .normal,
             flameColor: flameColor
         ))
+        .onReceive(NotificationCenter.default.publisher(for: .codexBarOpenSettings)) { _ in
+            openSettings()
+        }
     }
 
     private var flameColor: NSColor? {

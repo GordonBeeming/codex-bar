@@ -3,6 +3,7 @@ import SwiftUI
 
 @main
 struct CodexBarApp: App {
+    @NSApplicationDelegateAdaptor(AppDelegate.self) private var appDelegate
     @State private var model: UsageViewModel
     @State private var settings: AppSettings
     @State private var celebrations: CelebrationController
@@ -19,6 +20,7 @@ struct CodexBarApp: App {
         _settings = State(initialValue: settings)
         _celebrations = State(initialValue: celebrations)
         NSApplication.shared.setActivationPolicy(.accessory)
+        URLCommandRouter.shared.settings = settings
         model.start(settings: settings, celebrations: celebrations)
     }
 

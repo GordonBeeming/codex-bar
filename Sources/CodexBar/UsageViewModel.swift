@@ -18,6 +18,7 @@ final class UsageViewModel {
     private let pollInterval: Duration
     private let captureInterval: @Sendable (Int) -> Duration
     private let configuredCodexHome: URL?
+    private let telemetryStateURL: URL
     private let logger = Logger(subsystem: "com.gordonbeeming.CodexBar", category: "Usage")
     private var pollTask: Task<Void, Never>?
     @ObservationIgnored private var telemetryTask: Task<Void, Never>?
@@ -26,7 +27,6 @@ final class UsageViewModel {
     @ObservationIgnored private var telemetryGeneration = UUID()
     @ObservationIgnored private var latestSnapshot: UsageSnapshot?
     @ObservationIgnored private var snapshotObservedAt: Date?
-    @ObservationIgnored private var tokenReader: LocalTokenUsageReader?
     @ObservationIgnored private var telemetrySinks: [URL: LocalTelemetrySink] = [:]
     @ObservationIgnored private var refreshWaiters: [CheckedContinuation<Void, Never>] = []
     @ObservationIgnored private var settingsObservationGeneration = UUID()
@@ -41,12 +41,14 @@ final class UsageViewModel {
 
     init(
         client: any UsageFetching = CodexAppServerClient(), pollInterval: Duration = .seconds(60),
-        captureInterval: @escaping @Sendable (Int) -> Duration = { .seconds($0 * 60) }, codexHome: URL? = nil
+        captureInterval: @escaping @Sendable (Int) -> Duration = { .seconds($0 * 60) }, codexHome: URL? = nil,
+        telemetryStateURL: URL = TelemetryRecorder.defaultStateURL
     ) {
         self.client = client
         self.pollInterval = pollInterval
         self.captureInterval = captureInterval
         self.configuredCodexHome = codexHome
+        self.telemetryStateURL = telemetryStateURL
     }
 
     func stop() {
@@ -59,7 +61,6 @@ final class UsageViewModel {
         telemetryRecorder?.stop()
         telemetryRecorder = nil
         telemetryConfiguration = nil
-        tokenReader = nil
     }
 
     func start(settings: AppSettings, celebrations: CelebrationController) {
@@ -185,31 +186,40 @@ final class UsageViewModel {
         telemetryError = nil
         guard configuration.enabled else {
             telemetryRecorder = nil
-            tokenReader = nil
             lastTelemetryWrite = nil
             previousRecorder?.stop()
+            // Tokens used while tracking is off must never be counted, so turning it back on
+            // starts a new count with a new start time.
+            do { try TelemetryRecorder.discardState(at: telemetryStateURL) }
+            catch {
+                telemetryError = "Couldn't reset tracking state: \(error.localizedDescription)"
+                logger.error("telemetry state reset failed: \(error.localizedDescription, privacy: .public)")
+            }
             return
         }
         let reuseRecorder = previousConfiguration?.enabled == true && previousConfiguration?.directory == configuration.directory
+        // Stopped before a replacement exists so the old one can't write state after it.
+        if !reuseRecorder { previousRecorder?.stop() }
         let recorder: TelemetryRecorder
         if reuseRecorder, let previousRecorder { recorder = previousRecorder }
         else {
             let directory = configuration.directory.standardizedFileURL
             let sink = telemetrySinks[directory] ?? LocalTelemetrySink(directory: directory)
             telemetrySinks[directory] = sink
+            let environment = ProcessInfo.processInfo.environment
+            let codexHome = configuredCodexHome
+                ?? environment["CODEX_HOME"].flatMap { $0.isEmpty ? nil : URL(fileURLWithPath: $0, isDirectory: true) }
+                ?? FileManager.default.homeDirectoryForCurrentUser.appending(path: ".codex")
             recorder = TelemetryRecorder(
                 sink: sink, retentionDays: configuration.retentionDays,
-                serviceVersion: Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "development"
+                serviceVersion: Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "development",
+                intervalMinutes: configuration.intervalMinutes, stateURL: telemetryStateURL,
+                scanner: SessionTokenScanner(codexHome: codexHome)
             )
             lastTelemetryWrite = nil
         }
         telemetryRecorder = recorder
         recorder.updateRetentionDays(configuration.retentionDays)
-        if !reuseRecorder { previousRecorder?.stop() }
-        let environment = ProcessInfo.processInfo.environment
-        let codexHome = configuredCodexHome ?? environment["CODEX_HOME"].flatMap { $0.isEmpty ? nil : URL(fileURLWithPath: $0, isDirectory: true) }
-            ?? FileManager.default.homeDirectoryForCurrentUser.appending(path: ".codex")
-        if !reuseRecorder { tokenReader = LocalTokenUsageReader(codexHome: codexHome) }
         let generation = telemetryGeneration
         let interval = captureInterval(configuration.intervalMinutes)
         telemetryTask = Task { [weak self] in
@@ -238,31 +248,10 @@ final class UsageViewModel {
             await refresh()
         }
         guard !Task.isCancelled, generation == telemetryGeneration else { return }
-        var tokenTotals: LocalTokenTotals?
-        var tokenError: String?
-        do {
-            tokenTotals = try await tokenReader?.collect()
-            if let skipped = tokenTotals?.skippedFiles, skipped > 0 {
-                tokenError = "Skipped \(skipped) local session files with unreadable usage or unresolved fork history"
-            }
-        }
-        catch {
-            guard !Task.isCancelled, generation == telemetryGeneration else { return }
-            tokenError = "Couldn't read local token totals: \(error.localizedDescription)"
-            logger.error("local token collection failed: \(error.localizedDescription, privacy: .public)")
-        }
-        guard !Task.isCancelled, generation == telemetryGeneration else { return }
-        if needsTelemetryRefresh { await refresh() }
-        guard !Task.isCancelled, generation == telemetryGeneration else { return }
-        // Local history scans can take time. Select account data after the scan
-        // so a slow first capture cannot export an expired cached response.
+        // Select account data at capture time so an expired cached response is never exported.
         let isFresh = snapshotObservedAt.map { Date().timeIntervalSince($0) <= 120 } ?? false
         let snapshot = isFresh ? latestSnapshot : nil
         let observedAt = snapshot == nil ? nil : snapshotObservedAt
-        guard snapshot != nil || tokenTotals != nil else {
-            telemetryError = tokenError ?? "Waiting for fresh Codex usage data"
-            return
-        }
         do {
             let capturedAt = Date()
             if let snapshot {
@@ -272,14 +261,13 @@ final class UsageViewModel {
             guard !Task.isCancelled, generation == telemetryGeneration else { return }
             try await recorder.recordSample(result: snapshot?.rateLimits, planType: snapshot?.planType,
                                             observedAt: observedAt,
-                                            at: capturedAt, localTokens: tokenTotals, accountTokens: snapshot?.tokenUsage)
+                                            at: capturedAt, accountTokens: snapshot?.tokenUsage)
             guard generation == telemetryGeneration else { return }
             lastTelemetryWrite = capturedAt
             var warnings = await recorder.exportWarnings()
             guard generation == telemetryGeneration else { return }
-            if let tokenError { warnings.append(tokenError) }
             if let error = snapshot?.tokenUsageError { warnings.append("Account token summary unavailable: \(error)") }
-            if snapshot == nil { warnings.append("Account usage unavailable; recorded local tokens only") }
+            if snapshot == nil { warnings.append("Codex usage unavailable; recorded local tokens only") }
             telemetryError = warnings.isEmpty ? nil : warnings.joined(separator: "\n")
         } catch {
             reportTelemetryFailure(error, generation: generation)

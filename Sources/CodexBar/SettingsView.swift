@@ -42,7 +42,7 @@ struct SettingsView: View {
             Section("Telemetry") {
                 Toggle("Record telemetry to disk", isOn: $settings.telemetryEnabled)
 
-                Text("Save usage for every Codex limit and token totals from sessions on this Mac. Prompts, responses, and sign-in credentials aren't exported.")
+                Text("Save usage for every Codex limit and the tokens Codex uses on this Mac from when recording starts. Prompts, responses, and sign-in credentials aren't exported.")
                     .font(.caption)
                     .foregroundStyle(.secondary)
 
@@ -99,7 +99,7 @@ struct SettingsView: View {
                         && telemetryDirectoryDraft == settings.telemetryDirectory))
                 .help("Saves the interval, retention, and folder. Expired telemetry files are removed on later writes when retention is limited.")
 
-                Text("OTLP JSON, in separate daily metrics and event files. Reset-credit changes are recorded when detected. Local token totals include archived sessions and exclude inherited fork usage. Account token summaries are included when Codex supplies them.")
+                Text("OTLP JSON in daily metrics and event files, following the Bar Telemetry Spec so Bar UI can read them. Reset-credit changes are recorded when detected. Turning recording off and on again restarts the token count.")
                     .font(.caption)
                     .foregroundStyle(.secondary)
 
@@ -162,12 +162,16 @@ struct SettingsView: View {
         }
         .formStyle(.grouped)
         .frame(width: 460, height: 680)
-        .onAppear {
-            telemetryIntervalDraft = settings.telemetryIntervalMinutes
-            telemetryUnlimitedRetentionDraft = settings.telemetryRetentionDays == TelemetryConfiguration.unlimitedRetentionDays
-            telemetryRetentionDraft = telemetryUnlimitedRetentionDraft ? 90 : settings.telemetryRetentionDays
-            telemetryDirectoryDraft = settings.telemetryDirectory
-        }
+        .onAppear(perform: loadTelemetryDrafts)
+        // A codexbar://telemetry link applies straight to settings; an open window follows it.
+        .onChange(of: settings.telemetryConfiguration) { loadTelemetryDrafts() }
+    }
+
+    private func loadTelemetryDrafts() {
+        telemetryIntervalDraft = settings.telemetryIntervalMinutes
+        telemetryUnlimitedRetentionDraft = settings.telemetryRetentionDays == TelemetryConfiguration.unlimitedRetentionDays
+        telemetryRetentionDraft = telemetryUnlimitedRetentionDraft ? 90 : settings.telemetryRetentionDays
+        telemetryDirectoryDraft = settings.telemetryDirectory
     }
 
     private var selectedRetentionDays: Int {
