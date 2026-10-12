@@ -150,6 +150,27 @@ final class BarTelemetryTests: XCTestCase {
                      "A restarted count has nothing to report until new tokens arrive")
     }
 
+    func testFailedFirstLogWriteKeepsTheBaselineAndRetriesTheStartEvent() async throws {
+        let sink = RecordingSink()
+        await sink.failLogs(true)
+        let first = recorder(sink)
+        do {
+            try await first.recordSample(result: nil, planType: nil, observedAt: nil, at: Date(timeIntervalSince1970: 100))
+            XCTFail("Expected the log write to fail")
+        } catch { XCTAssertEqual((error as NSError).code, CocoaError.fileWriteNoPermission.rawValue) }
+        await sink.failLogs(false)
+        // Even across a relaunch, the retry keeps the original start time and announces it.
+        try await recorder(sink).recordSample(result: nil, planType: nil, observedAt: nil, at: Date(timeIntervalSince1970: 200))
+        try await recorder(sink).recordSample(result: nil, planType: nil, observedAt: nil, at: Date(timeIntervalSince1970: 300))
+        let lines = await sink.lines
+        XCTAssertEqual(try eventNames(lines), ["bar.tracking.started"])
+        let decoder = JSONDecoder()
+        decoder.dateDecodingStrategy = .secondsSince1970
+        let saved = try decoder.decode(TelemetryState.self, from: Data(contentsOf: home.appending(path: "state.json")))
+        XCTAssertEqual(saved.scan?.countingSince.timeIntervalSince1970, 100)
+        XCTAssertEqual(saved.startAnnounced, true)
+    }
+
     private func tokenMetric(_ line: Data?) throws -> [String: Any]? {
         guard let line else { return nil }
         let resource = (try json(line)["resourceMetrics"] as? [[String: Any]])?.first
@@ -180,6 +201,13 @@ final class BarTelemetryTests: XCTestCase {
         // A capped list that drops a row while the count holds is not a perk going.
         let capped = BarEvents.perkEvents(previous: first.observed, summary: summary(2, [("a", "available", 2_000)]), now: now)
         XCTAssertTrue(capped.events.isEmpty)
+        // An expiry Codex reports only later is the one a disappearance is judged by.
+        let noExpiry = BarEvents.perkEvents(previous: nil, summary: summary(1, [("c", "available", nil)]), now: now)
+        let laterExpiry = BarEvents.perkEvents(previous: noExpiry.observed, summary: summary(1, [("c", "available", 900)]), now: now)
+        XCTAssertTrue(laterExpiry.events.isEmpty)
+        let gone = BarEvents.perkEvents(previous: laterExpiry.observed, summary: summary(0, []), now: now)
+        XCTAssertTrue(gone.events[0].attributes.contains { $0.key == "perk.gone.reason" && $0.value.stringValue == "expired" })
+
         let countOnly = BarEvents.perkEvents(previous: ObservedPerks(count: 1, available: [:]), summary: summary(3, nil), now: now)
         XCTAssertEqual(countOnly.events.map(\.name), ["bar.perk.available"])
     }
@@ -222,8 +250,11 @@ final class BarTelemetryTests: XCTestCase {
 
 actor RecordingSink: TelemetrySink {
     var lines: [Data] = []
+    private var logsFail = false
+    func failLogs(_ fail: Bool) { logsFail = fail }
     func export(_ data: Data, signal: TelemetrySignal, at date: Date, retentionDays: Int, activity: TelemetryActivity?) async throws {
         try activity?.check()
+        if signal == .logs, logsFail { throw CocoaError(.fileWriteNoPermission) }
         lines.append(data)
     }
 }

@@ -162,16 +162,21 @@ struct SettingsView: View {
         }
         .formStyle(.grouped)
         .frame(width: 460, height: 680)
-        .onAppear(perform: loadTelemetryDrafts)
-        // A codexbar://telemetry link applies straight to settings; an open window follows it.
-        .onChange(of: settings.telemetryConfiguration) { loadTelemetryDrafts() }
+        .onAppear {
+            telemetryIntervalDraft = settings.telemetryIntervalMinutes
+            loadRetentionDraft()
+            telemetryDirectoryDraft = settings.telemetryDirectory
+        }
+        // A codexbar://telemetry link applies straight to settings. Each draft follows only its
+        // own setting, so a link (or the toggle) never wipes an unsaved edit to another field.
+        .onChange(of: settings.telemetryIntervalMinutes) { telemetryIntervalDraft = settings.telemetryIntervalMinutes }
+        .onChange(of: settings.telemetryRetentionDays) { loadRetentionDraft() }
+        .onChange(of: settings.telemetryDirectory) { telemetryDirectoryDraft = settings.telemetryDirectory }
     }
 
-    private func loadTelemetryDrafts() {
-        telemetryIntervalDraft = settings.telemetryIntervalMinutes
+    private func loadRetentionDraft() {
         telemetryUnlimitedRetentionDraft = settings.telemetryRetentionDays == TelemetryConfiguration.unlimitedRetentionDays
         telemetryRetentionDraft = telemetryUnlimitedRetentionDraft ? 90 : settings.telemetryRetentionDays
-        telemetryDirectoryDraft = settings.telemetryDirectory
     }
 
     private var selectedRetentionDays: Int {

@@ -157,6 +157,10 @@ enum BarEvents {
         if summary.availableCount - previous.count + used.count - appeared.count > 0 {
             events.append(.init(name: "bar.perk.available", attributes: perkAttributes(id: nil, expiresAt: nil)))
         }
+        // An expiry reported late, or moved, must be the one a later disappearance is judged by.
+        for (id, expiresAt) in availableNow {
+            if let expiresAt { kept.updateValue(expiresAt, forKey: id) }
+        }
         return (events, ObservedPerks(count: summary.availableCount, available: kept))
     }
 }

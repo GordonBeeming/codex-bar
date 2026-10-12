@@ -52,6 +52,9 @@ public struct SessionScanState: Codable, Sendable, Equatable {
         /// below this ordinal, were already counted in the parent.
         var copiedThrough: Date?
         var copiedBelowOrdinal: UInt64?
+        /// True when this session has been read from its first byte, so its first running
+        /// total is all its own usage. A cursor placed at a baseline never gets this.
+        var readFromStart: Bool?
     }
 
     var cursors: [String: Cursor]
@@ -80,6 +83,9 @@ public struct SessionTokenScanner: Sendable {
 
     static let unknownModel = "unknown"
     private static let chunkSize = 4 * 1024 * 1024
+    /// Past this, an unfinished line that isn't a record we read is dropped as it streams in.
+    /// Prompt and tool-output lines can be far larger; token and context lines never are.
+    private static let lineBufferLimit = 1024 * 1024
     private static let contextSearchLimit: UInt64 = 64 * 1024 * 1024
 
     public let roots: [URL]
@@ -110,7 +116,8 @@ public struct SessionTokenScanner: Sendable {
         for file in try sessionFiles() {
             try Task.checkCancellation()
             seen.insert(file.id)
-            var cursor = state.cursors[file.id] ?? .init(path: file.url.path, offset: 0, needsContext: false)
+            var cursor = state.cursors[file.id]
+                ?? .init(path: file.url.path, offset: 0, needsContext: false, readFromStart: true)
             // Cursors are keyed by session ID, so a session Codex moves into
             // archived_sessions carries on from where it was rather than replaying.
             cursor.path = file.url.path
@@ -184,7 +191,8 @@ public struct SessionTokenScanner: Sendable {
         let handle = try FileHandle(forReadingFrom: url)
         // A read-only handle has nothing to flush, so a failed close can't lose data.
         defer { try? handle.close() }
-        var skipFragment = false
+        // While set, bytes are discarded up to and including the next newline.
+        var skippingLine = false
         if cursor.needsContext {
             let context = try Self.context(handle, before: cursor.offset)
             cursor.model = context.model ?? cursor.model
@@ -193,7 +201,7 @@ public struct SessionTokenScanner: Sendable {
             // A baseline taken mid-write sits inside a line; its tail isn't a whole record.
             if cursor.offset > 0 {
                 try handle.seek(toOffset: cursor.offset - 1)
-                skipFragment = try handle.read(upToCount: 1)?.first != 0x0A
+                skippingLine = try handle.read(upToCount: 1)?.first != 0x0A
             }
         }
         try handle.seek(toOffset: cursor.offset)
@@ -205,22 +213,38 @@ public struct SessionTokenScanner: Sendable {
             guard let chunk = try handle.read(upToCount: want), !chunk.isEmpty else { break }
             position += UInt64(chunk.count)
             pending.append(chunk)
+            if skippingLine {
+                guard let newline = pending.firstIndex(of: 0x0A) else {
+                    // The cursor stays at the line's start, so a scan that stops here
+                    // resumes cleanly; only the buffered bytes are let go.
+                    pending.removeAll(keepingCapacity: true)
+                    continue
+                }
+                pending = Data(pending[pending.index(after: newline)...])
+                cursor.offset = position - UInt64(pending.count)
+                skippingLine = false
+            }
             // Only complete lines are consumed; a trailing partial line is still being
             // written and is picked up whole on a later scan.
-            guard let lastNewline = pending.lastIndex(of: 0x0A) else { continue }
-            let complete = pending[pending.startIndex...lastNewline]
-            var lines = complete.split(separator: 0x0A, omittingEmptySubsequences: false).dropLast()
-            if skipFragment { lines = lines.dropFirst(); skipFragment = false }
-            for line in lines where !line.isEmpty {
-                try consume(Data(line), cursor: &cursor, totals: &totals)
+            if let lastNewline = pending.lastIndex(of: 0x0A) {
+                let complete = pending[pending.startIndex...lastNewline]
+                for line in complete.split(separator: 0x0A, omittingEmptySubsequences: true) {
+                    try consume(line, cursor: &cursor, totals: &totals)
+                }
+                cursor.offset += UInt64(complete.count)
+                pending = Data(pending[pending.index(after: lastNewline)...])
             }
-            cursor.offset += UInt64(complete.count)
-            pending = Data(pending[pending.index(after: lastNewline)...])
+            if pending.count > Self.lineBufferLimit, Self.kind(of: pending) == nil {
+                pending.removeAll(keepingCapacity: true)
+                skippingLine = true
+            }
         }
     }
 
-    private func consume(_ line: Data, cursor: inout SessionScanState.Cursor, totals: inout [String: TokenTypeCounts]) throws {
-        switch Self.kind(of: line) {
+    private func consume(_ slice: Data, cursor: inout SessionScanState.Cursor, totals: inout [String: TokenTypeCounts]) throws {
+        guard let kind = Self.kind(of: slice) else { return }
+        let line = Data(slice)
+        switch kind {
         case .turnContext:
             if let model = Self.decode(TurnContextLine.self, line)?.payload.model, !model.isEmpty {
                 cursor.model = model
@@ -248,13 +272,15 @@ public struct SessionTokenScanner: Sendable {
                 usage = Usage(input: total.input - previous.input, cached: total.cached - previous.cached,
                               cacheWrite: total.cacheWrite - previous.cacheWrite, output: total.output - previous.output,
                               reasoning: total.reasoning - previous.reasoning, total: total.total - previous.total)
-            } else {
+            } else if cursor.readFromStart == true {
                 usage = total
+            } else {
+                // The total before the baseline wasn't found, so this one includes history
+                // from before tracking started. It only becomes the reference point.
+                return
             }
             guard [usage.input, usage.cached, usage.cacheWrite, usage.output, usage.reasoning].allSatisfy({ $0 >= 0 }) else { return }
             try totals[cursor.model ?? Self.unknownModel, default: TokenTypeCounts()].add(usage)
-        case nil:
-            return
         }
     }
 

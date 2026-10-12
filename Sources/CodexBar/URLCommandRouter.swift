@@ -20,8 +20,12 @@ final class URLCommandRouter {
     static let shared = URLCommandRouter()
 
     weak var settings: AppSettings?
+    /// Links that arrive while an alert is up are dropped: a page can open many at once, and
+    /// stacking confirmations would make it easy to click through one by mistake.
+    private var isPresenting = false
 
     func handle(_ url: URL) {
+        guard !isPresenting else { return }
         let command: TelemetryURLCommand
         do { command = try TelemetryURLCommand.parse(url) }
         catch {
@@ -50,8 +54,7 @@ final class URLCommandRouter {
         alert.informativeText = lines.joined(separator: "\n")
         alert.addButton(withTitle: "Apply")
         alert.addButton(withTitle: "Cancel")
-        NSApp.activate()
-        guard alert.runModal() == .alertFirstButtonReturn else { return }
+        guard present(alert) == .alertFirstButtonReturn else { return }
         if let interval = change.intervalMinutes { settings.telemetryIntervalMinutes = interval }
         if let retention = change.retentionDays { settings.telemetryRetentionDays = retention }
         if let directory = change.directory { settings.telemetryDirectory = directory }
@@ -63,7 +66,14 @@ final class URLCommandRouter {
         alert.messageText = title
         alert.informativeText = message
         alert.addButton(withTitle: "OK")
+        present(alert)
+    }
+
+    @discardableResult
+    private func present(_ alert: NSAlert) -> NSApplication.ModalResponse {
+        isPresenting = true
+        defer { isPresenting = false }
         NSApp.activate()
-        alert.runModal()
+        return alert.runModal()
     }
 }

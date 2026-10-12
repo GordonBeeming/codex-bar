@@ -147,6 +147,28 @@ final class SessionTokenScannerTests: XCTestCase {
         XCTAssertEqual(state.totals["unknown"]?.input, 10)
     }
 
+    func testRunningTotalWithoutAPreviousOneIsNotBackfilledAfterTheBaseline() throws {
+        try append([meta(), context("gpt-5.5")], to: file(sessionID))
+        var state = try scanner.baseline(now: Date())
+        // No last_token_usage and no earlier total: the running total holds pre-baseline usage.
+        try append([#"{"timestamp":"2026-10-12T10:00:02.000Z","type":"event_msg","payload":{"type":"token_count","info":{"total_token_usage":{"input_tokens":900,"cached_input_tokens":0,"output_tokens":90,"total_tokens":990}}}}"#,
+                    #"{"timestamp":"2026-10-12T10:00:03.000Z","type":"event_msg","payload":{"type":"token_count","info":{"total_token_usage":{"input_tokens":950,"cached_input_tokens":0,"output_tokens":95,"total_tokens":1045}}}}"#],
+                   to: file(sessionID))
+        try scanner.scan(&state)
+        XCTAssertEqual(state.totals["gpt-5.5"]?.input, 50)
+        XCTAssertEqual(state.totals["gpt-5.5"]?.output, 5)
+    }
+
+    func testOversizedConversationLinesAreSkippedWithoutLosingTheTurnAfterThem() throws {
+        var state = try scanner.baseline(now: Date())
+        let huge = #"{"timestamp":"2026-10-12T10:00:01.500Z","type":"response_item","payload":{"type":"message","text":""# + String(repeating: "x", count: 9 * 1024 * 1024) + #""}}"#
+        try append([meta(), context("gpt-5.5"), huge, tokens(total: (10, 0, 1, 0), last: (10, 0, 1, 0))], to: file(sessionID))
+        try scanner.scan(&state)
+        XCTAssertEqual(state.totals["gpt-5.5"]?.input, 10)
+        let size = try XCTUnwrap(try FileManager.default.attributesOfItem(atPath: file(sessionID).path)[.size] as? UInt64)
+        XCTAssertEqual(state.cursors.values.first?.offset, size)
+    }
+
     func testCacheWritesInsideInputAreSubtracted() throws {
         var counts = TokenTypeCounts()
         try counts.add(.init(input: 100, cached: 30, cacheWrite: 20, output: 5, reasoning: 1, total: 105))

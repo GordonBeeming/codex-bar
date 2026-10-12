@@ -6,6 +6,9 @@ struct TelemetryState: Codable, Sendable, Equatable {
     /// `nil` until the first successful usage read since tracking started.
     var limits: [String: ObservedLimit]?
     var perks: ObservedPerks?
+    /// `false` from a new baseline until `bar.tracking.started` is written. The baseline is
+    /// kept meanwhile, so a failed write delays the event without losing tokens.
+    var startAnnounced: Bool?
 }
 
 public actor TelemetryRecorder {
@@ -72,9 +75,18 @@ public actor TelemetryRecorder {
             } catch is CancellationError { throw CancellationError() }
             catch { warnings.append("Couldn't read Codex sessions: \(error.localizedDescription)") }
         } else {
-            current = TelemetryState(scan: try scanner.baseline(now: date))
+            current.scan = try scanner.baseline(now: date)
+            current.limits = nil
+            current.startAnnounced = false
+        }
+        if current.startAnnounced == false {
             events.append(BarEvents.trackingStarted(intervalMinutes: intervalMinutes))
         }
+        var progress = loadState()
+        progress.scan = current.scan
+        progress.limits = current.limits
+        progress.startAnnounced = current.startAnnounced
+        if progress != loadState() { try save(progress) }
 
         var limits = current.limits
         if let result {
@@ -93,11 +105,6 @@ public actor TelemetryRecorder {
         let data = try OTLPTelemetryEncoder.metrics(result: result, planType: planType,
                                                   observedAt: observedAt, capturedAt: date,
                                                   serviceVersion: serviceVersion, tokens: current.scan, accountTokens: filteredTokens)
-        // A baseline without its tracking-started event would hide the restart from Bar UI,
-        // so a fresh baseline is only kept once that event is written.
-        if !events.contains(where: { $0.name == "bar.tracking.started" }) {
-            try commit(scan: current.scan)
-        }
         try await sink.export(data, signal: .metrics, at: date, retentionDays: retentionDays, activity: activity)
         try activity.check()
         if let result {
@@ -110,8 +117,8 @@ public actor TelemetryRecorder {
         // Events are diffs against the last observation; advancing it only after the write
         // means a failed write re-emits them on the next capture instead of losing them.
         var saved = loadState()
-        saved.scan = current.scan
         saved.limits = limits
+        if saved.startAnnounced == false { saved.startAnnounced = true }
         try save(saved)
         for bucket in changedBuckets ?? [] { dailyBuckets[bucket.startDate] = bucket.tokens }
         dailyAccountScope = scope
@@ -183,13 +190,6 @@ public actor TelemetryRecorder {
         accountScope = scope
         availableCount = summary.availableCount
         creditStatuses = statuses
-    }
-
-    private func commit(scan: SessionScanState?) throws {
-        var saved = loadState()
-        guard saved.scan != scan else { return }
-        saved.scan = scan
-        try save(saved)
     }
 
     private func loadState() -> TelemetryState {

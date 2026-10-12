@@ -19,6 +19,9 @@ final class UsageViewModel {
     private let captureInterval: @Sendable (Int) -> Duration
     private let configuredCodexHome: URL?
     private let telemetryStateURL: URL
+    /// Set when turning tracking off couldn't delete the state. Tracking stays off until the
+    /// delete succeeds, so tokens used while it was off are never counted.
+    @ObservationIgnored private var stateResetPending = false
     private let logger = Logger(subsystem: "com.gordonbeeming.CodexBar", category: "Usage")
     private var pollTask: Task<Void, Never>?
     @ObservationIgnored private var telemetryTask: Task<Void, Never>?
@@ -190,11 +193,13 @@ final class UsageViewModel {
             previousRecorder?.stop()
             // Tokens used while tracking is off must never be counted, so turning it back on
             // starts a new count with a new start time.
-            do { try TelemetryRecorder.discardState(at: telemetryStateURL) }
-            catch {
-                telemetryError = "Couldn't reset tracking state: \(error.localizedDescription)"
-                logger.error("telemetry state reset failed: \(error.localizedDescription, privacy: .public)")
-            }
+            stateResetPending = true
+            resetTrackingStateIfPending()
+            return
+        }
+        guard resetTrackingStateIfPending() else {
+            // Forget this configuration so the next settings change retries the reset.
+            telemetryConfiguration = nil
             return
         }
         let reuseRecorder = previousConfiguration?.enabled == true && previousConfiguration?.directory == configuration.directory
@@ -240,6 +245,20 @@ final class UsageViewModel {
                     try await clock.sleep(until: nextCapture)
                 } catch { return }
             }
+        }
+    }
+
+    @discardableResult
+    private func resetTrackingStateIfPending() -> Bool {
+        guard stateResetPending else { return true }
+        do {
+            try TelemetryRecorder.discardState(at: telemetryStateURL)
+            stateResetPending = false
+            return true
+        } catch {
+            telemetryError = "Couldn't reset tracking state, so recording stays paused: \(error.localizedDescription)"
+            logger.error("telemetry state reset failed: \(error.localizedDescription, privacy: .public)")
+            return false
         }
     }
 
