@@ -27,8 +27,12 @@ public struct TelemetryFolderMigration {
             guard let stage = Self.stage(of: entry) else { continue }
             do {
                 let values = try entry.resourceValues(forKeys: [.isRegularFileKey, .isSymbolicLinkKey])
-                guard values.isRegularFile == true, values.isSymbolicLink != true else { continue }
-                if stage == .migrated {
+                guard values.isRegularFile == true, values.isSymbolicLink != true else {
+                    // removeItem would follow a directory into its contents, so only regular files are ever touched.
+                    if stage != .live { warnings.append("Left \(entry.lastPathComponent) alone in the old telemetry folder: it isn't a regular file") }
+                    continue
+                }
+                if stage == .migrated || stage == .mergingDone {
                     try fileManager.removeItem(at: entry)
                     continue
                 }
@@ -62,7 +66,7 @@ public struct TelemetryFolderMigration {
             return true
         }
         return entries.contains { entry in
-            guard let stage = Self.stage(of: entry), stage != .migrated,
+            guard let stage = Self.stage(of: entry), stage == .live || stage == .merging,
                   let values = try? entry.resourceValues(forKeys: [.isRegularFileKey, .isSymbolicLinkKey]) else { return false }
             return values.isRegularFile == true && values.isSymbolicLink != true
         }
@@ -116,8 +120,20 @@ public struct TelemetryFolderMigration {
             try? handle.truncate(atOffset: size)
             throw error
         }
-        let migrated = merging.deletingPathExtension().appendingPathExtension(Self.migratedExtension)
-        try fileManager.moveItem(at: merging, to: migrated)
+        // The lines are in the target now, so from here the source must never go back to a name that gets appended again.
+        let base = merging.deletingPathExtension()
+        let migrated = base.appendingPathExtension(Self.migratedExtension)
+        do {
+            try fileManager.moveItem(at: merging, to: migrated)
+        } catch {
+            do {
+                try fileManager.removeItem(at: merging)
+            } catch {
+                try fileManager.moveItem(at: merging, to: base.appendingPathExtension(Self.mergingDoneExtension))
+                throw error
+            }
+            return
+        }
         try fileManager.removeItem(at: migrated)
     }
 
@@ -134,13 +150,17 @@ public struct TelemetryFolderMigration {
     private static let mergingExtension = "merging"
     private static let migratedExtension = "migrated"
 
-    private enum Stage { case live, merging, migrated }
+    private static let mergingDoneExtension = "merging-done"
+
+    /// `merging` and `mergingDone` are both leftovers, but only `merging` still needs its lines appended.
+    private enum Stage { case live, merging, mergingDone, migrated }
 
     private static func stage(of url: URL) -> Stage? {
         if isTelemetryFile(url) { return .live }
         guard isTelemetryFile(url.deletingPathExtension()) else { return nil }
         switch url.pathExtension {
         case mergingExtension: return .merging
+        case mergingDoneExtension: return .mergingDone
         case migratedExtension: return .migrated
         default: return nil
         }
