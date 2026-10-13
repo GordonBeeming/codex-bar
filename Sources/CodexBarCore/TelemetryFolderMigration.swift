@@ -45,10 +45,16 @@ public struct TelemetryFolderMigration {
 
     /// True while a file the migration would still move is in the old folder, which means a previous attempt failed.
     public func hasPendingFiles() -> Bool {
-        guard let legacy = legacyFolder(),
-              let entries = try? fileManager.contentsOfDirectory(
+        guard let legacy = legacyFolder() else { return false }
+        let entries: [URL]
+        do {
+            entries = try fileManager.contentsOfDirectory(
                 at: legacy, includingPropertiesForKeys: [.isRegularFileKey, .isSymbolicLinkKey], options: []
-              ) else { return false }
+            )
+        } catch {
+            // Unreadable (for example Documents access was denied) isn't empty: files may still be there to move.
+            return true
+        }
         return entries.contains { entry in
             guard Self.isTelemetryFile(entry),
                   let values = try? entry.resourceValues(forKeys: [.isRegularFileKey, .isSymbolicLinkKey]) else { return false }

@@ -7,6 +7,14 @@ private final class UndeletableFileManager: FileManager, @unchecked Sendable {
     }
 }
 
+private final class UnreadableFileManager: FileManager, @unchecked Sendable {
+    override func contentsOfDirectory(
+        at url: URL, includingPropertiesForKeys keys: [URLResourceKey]?, options mask: FileManager.DirectoryEnumerationOptions = []
+    ) throws -> [URL] {
+        throw CocoaError(.fileReadNoPermission, userInfo: [NSFilePathErrorKey: url.path])
+    }
+}
+
 final class TelemetryFolderMigrationTests: XCTestCase {
     private var home: URL!
     private var legacy: URL!
@@ -146,6 +154,14 @@ final class TelemetryFolderMigrationTests: XCTestCase {
         _ = TelemetryFolderMigration(home: home).run()
 
         XCTAssertEqual(try read(name, in: destination), "new\nold\n")
+    }
+
+    func testUnreadableLegacyFolderCountsAsPendingSoItIsRetried() throws {
+        try write("codexbar-metrics-2026-10-11.jsonl", "m\n", in: legacy)
+        let migration = TelemetryFolderMigration(home: home, fileManager: UnreadableFileManager())
+
+        XCTAssertEqual(migration.run().count, 1)
+        XCTAssertTrue(migration.hasPendingFiles())
     }
 
     func testNoLegacyFolderIsANoOp() {
