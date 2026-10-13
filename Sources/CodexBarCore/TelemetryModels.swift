@@ -64,7 +64,17 @@ public struct TelemetryConfiguration: Equatable, Sendable {
     }
 
     public static var defaultDirectory: URL {
-        FileManager.default.homeDirectoryForCurrentUser.appending(path: "Documents/CodexBar Telemetry")
+        defaultDirectory(home: FileManager.default.homeDirectoryForCurrentUser)
+    }
+
+    /// Application Support isn't a TCC-protected folder, so macOS doesn't prompt for access the way it does for Documents.
+    public static func defaultDirectory(home: URL) -> URL {
+        home.appending(path: "Library/Application Support/CodexBar/Telemetry", directoryHint: .isDirectory)
+    }
+
+    /// Where earlier versions wrote by default; only used to migrate existing files.
+    public static func legacyDefaultDirectory(home: URL) -> URL {
+        home.appending(path: "Documents/CodexBar Telemetry", directoryHint: .isDirectory)
     }
 }
 

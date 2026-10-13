@@ -176,7 +176,12 @@ final class TelemetryTests: XCTestCase {
         XCTAssertEqual(bounded.intervalMinutes, 1)
         XCTAssertEqual(bounded.retentionDays, 1)
         XCTAssertEqual(TelemetryConfiguration(retentionDays: 0, directory: temporaryDirectory()).retentionDays, 0)
-        XCTAssertTrue(TelemetryConfiguration.defaultDirectory.path.hasSuffix("Documents/CodexBar Telemetry"))
+        let home = URL(fileURLWithPath: "/Users/example", isDirectory: true)
+        XCTAssertEqual(TelemetryConfiguration.defaultDirectory(home: home).path,
+                       "/Users/example/Library/Application Support/CodexBar/Telemetry")
+        XCTAssertEqual(TelemetryConfiguration.legacyDefaultDirectory(home: home).path,
+                       "/Users/example/Documents/CodexBar Telemetry")
+        XCTAssertTrue(TelemetryConfiguration.defaultDirectory.path.hasSuffix("Library/Application Support/CodexBar/Telemetry"))
     }
 
     func testUnlimitedRetentionKeepsOldMetricsAndLogsUntilLimitIsRestored() async throws {

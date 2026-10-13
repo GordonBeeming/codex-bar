@@ -9,7 +9,9 @@ struct CodexBarApp: App {
     @State private var celebrations: CelebrationController
 
     init() {
-        self.init(model: UsageViewModel(), settings: AppSettings())
+        let settings = AppSettings()
+        settings.migrateLegacyTelemetryFolder()
+        self.init(model: UsageViewModel(), settings: settings)
     }
 
     init(
