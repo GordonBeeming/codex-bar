@@ -51,6 +51,7 @@ final class AppSettings {
         static let telemetryIntervalMinutes = "telemetryIntervalMinutes"
         static let telemetryRetentionDays = "telemetryRetentionDays"
         static let telemetryDirectory = "telemetryDirectory"
+        static let telemetryFolderMigrated = "telemetryFolderMigrated"
 
         static func celebrationEnabled(_ trigger: CelebrationTrigger) -> String {
             "celebration.\(trigger.rawValue).enabled"
@@ -177,10 +178,14 @@ final class AppSettings {
 
     /// Moves files out of the old Documents default. Call once at launch, before telemetry starts writing.
     func migrateLegacyTelemetryFolder() {
-        guard usesDefaultTelemetryDirectory else { return }
-        for warning in TelemetryFolderMigration(home: home).run() {
+        // The flag keeps later launches from touching Documents at all, even when the old folder stays because it
+        // holds files that aren't ours.
+        guard usesDefaultTelemetryDirectory, !defaults.bool(forKey: Keys.telemetryFolderMigrated) else { return }
+        let migration = TelemetryFolderMigration(home: home)
+        for warning in migration.run() {
             logger.error("Telemetry folder migration: \(warning, privacy: .public)")
         }
+        if !migration.hasPendingFiles() { defaults.set(true, forKey: Keys.telemetryFolderMigrated) }
     }
 
     init(defaults: UserDefaults = .standard, home: URL = FileManager.default.homeDirectoryForCurrentUser) {

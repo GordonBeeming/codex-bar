@@ -12,9 +12,7 @@ public struct TelemetryFolderMigration {
 
     /// Returns a message per failure. A failure never throws: capture must still write to the new default.
     public func run() -> [String] {
-        let legacy = TelemetryConfiguration.legacyDefaultDirectory(home: home)
-        var isDirectory: ObjCBool = false
-        guard fileManager.fileExists(atPath: legacy.path, isDirectory: &isDirectory), isDirectory.boolValue else { return [] }
+        guard let legacy = legacyFolder() else { return [] }
 
         let entries: [URL]
         do {
@@ -45,8 +43,31 @@ public struct TelemetryFolderMigration {
         return warnings
     }
 
+    /// True while a file the migration would still move is in the old folder, which means a previous attempt failed.
+    public func hasPendingFiles() -> Bool {
+        guard let legacy = legacyFolder(),
+              let entries = try? fileManager.contentsOfDirectory(
+                at: legacy, includingPropertiesForKeys: [.isRegularFileKey, .isSymbolicLinkKey], options: []
+              ) else { return false }
+        return entries.contains { entry in
+            guard Self.isTelemetryFile(entry),
+                  let values = try? entry.resourceValues(forKeys: [.isRegularFileKey, .isSymbolicLinkKey]) else { return false }
+            return values.isRegularFile == true && values.isSymbolicLink != true
+        }
+    }
+
+    /// The old folder, unless it's missing or a symbolic link: a link could point anywhere, and its target isn't ours to move out of.
+    private func legacyFolder() -> URL? {
+        let legacy = TelemetryConfiguration.legacyDefaultDirectory(home: home)
+        guard let type = try? fileManager.attributesOfItem(atPath: legacy.path)[.type] as? FileAttributeType,
+              type == .typeDirectory else { return nil }
+        return legacy
+    }
+
     /// Appends the old file's complete lines, then deletes it. A trailing unterminated fragment is an unfinished
     /// record that the sink would discard itself, so it isn't carried over.
+    /// The source is renamed to a name the migration doesn't match before appending, so a delete that fails afterwards
+    /// can't cause the same lines to be appended again on the next launch.
     private func merge(_ source: URL, into target: URL) throws {
         let values = try target.resourceValues(forKeys: [.isRegularFileKey, .isSymbolicLinkKey])
         guard values.isRegularFile == true, values.isSymbolicLink != true else {
@@ -70,10 +91,19 @@ public struct TelemetryFolderMigration {
                 ])
             }
         }
-        try handle.seekToEnd()
-        try handle.write(contentsOf: incoming[incoming.startIndex...lastNewline])
-        try handle.synchronize()
-        try fileManager.removeItem(at: source)
+        let claimed = source.appendingPathExtension("migrated")
+        try fileManager.moveItem(at: source, to: claimed)
+        do {
+            try handle.seekToEnd()
+            try handle.write(contentsOf: incoming[incoming.startIndex...lastNewline])
+            try handle.synchronize()
+        } catch {
+            // Undo any partial append and hand the file back for the next launch.
+            try? handle.truncate(atOffset: size)
+            try? fileManager.moveItem(at: claimed, to: source)
+            throw error
+        }
+        try fileManager.removeItem(at: claimed)
     }
 
     private func removeLegacyFolderIfEmpty(_ legacy: URL) -> [String] {

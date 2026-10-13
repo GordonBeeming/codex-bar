@@ -1,6 +1,12 @@
 import XCTest
 @testable import CodexBarCore
 
+private final class UndeletableFileManager: FileManager, @unchecked Sendable {
+    override func removeItem(at URL: URL) throws {
+        throw CocoaError(.fileWriteNoPermission, userInfo: [NSFilePathErrorKey: URL.path])
+    }
+}
+
 final class TelemetryFolderMigrationTests: XCTestCase {
     private var home: URL!
     private var legacy: URL!
@@ -105,6 +111,41 @@ final class TelemetryFolderMigrationTests: XCTestCase {
         XCTAssertEqual(warnings.count, 1)
         XCTAssertEqual(try read(name, in: destination), "new-without-newline")
         XCTAssertEqual(try read(name, in: legacy), "old\n")
+    }
+
+    func testSymbolicLinkedLegacyRootIsNotFollowed() throws {
+        let elsewhere = home.appending(path: "elsewhere", directoryHint: .isDirectory)
+        try write("codexbar-metrics-2026-10-11.jsonl", "m\n", in: elsewhere)
+        try FileManager.default.createDirectory(at: legacy.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try FileManager.default.createSymbolicLink(at: legacy, withDestinationURL: elsewhere)
+        let migration = TelemetryFolderMigration(home: home)
+
+        XCTAssertEqual(migration.run(), [])
+        XCTAssertFalse(migration.hasPendingFiles())
+        XCTAssertEqual(try read("codexbar-metrics-2026-10-11.jsonl", in: elsewhere), "m\n")
+        XCTAssertFalse(FileManager.default.fileExists(atPath: destination.path))
+    }
+
+    func testPendingFilesOnlyCountEligibleTelemetryFiles() throws {
+        let migration = TelemetryFolderMigration(home: home)
+        XCTAssertFalse(migration.hasPendingFiles())
+        try write("notes.txt", "mine", in: legacy)
+        XCTAssertFalse(migration.hasPendingFiles())
+        try write("codexbar-logs-2026-10-11.jsonl", "l\n", in: legacy)
+        XCTAssertTrue(migration.hasPendingFiles())
+    }
+
+    func testFailedDeleteAfterAppendDoesNotAppendAgainOnRetry() throws {
+        let name = "codexbar-metrics-2026-10-11.jsonl"
+        try write(name, "new\n", in: destination)
+        try write(name, "old\n", in: legacy)
+
+        let failing = TelemetryFolderMigration(home: home, fileManager: UndeletableFileManager())
+        XCTAssertEqual(failing.run().count, 1)
+        XCTAssertFalse(failing.hasPendingFiles())
+        _ = TelemetryFolderMigration(home: home).run()
+
+        XCTAssertEqual(try read(name, in: destination), "new\nold\n")
     }
 
     func testNoLegacyFolderIsANoOp() {

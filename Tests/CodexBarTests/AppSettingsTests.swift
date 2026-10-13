@@ -84,6 +84,35 @@ final class AppSettingsTests: XCTestCase {
     }
 
     @MainActor
+    func testMigrationStopsProbingOnceNoTelemetryFilesRemainEvenIfFolderStays() throws {
+        let fixture = try TelemetryFolderFixture()
+        defer { fixture.cleanUp() }
+        try fixture.writeLegacy("codexbar-metrics-2026-10-11.jsonl", "m\n")
+        try fixture.writeLegacy("notes.txt", "mine")
+
+        AppSettings(defaults: fixture.defaults, home: fixture.home).migrateLegacyTelemetryFolder()
+        XCTAssertTrue(fixture.defaults.bool(forKey: "telemetryFolderMigrated"))
+
+        try fixture.writeLegacy("codexbar-logs-2026-10-12.jsonl", "l\n")
+        AppSettings(defaults: fixture.defaults, home: fixture.home).migrateLegacyTelemetryFolder()
+        XCTAssertEqual(try fixture.read(fixture.legacy, "codexbar-logs-2026-10-12.jsonl"), "l\n")
+    }
+
+    @MainActor
+    func testMigrationKeepsRetryingWhileAnEligibleFileRemains() throws {
+        let fixture = try TelemetryFolderFixture()
+        defer { fixture.cleanUp() }
+        let name = "codexbar-metrics-2026-10-11.jsonl"
+        try FileManager.default.createDirectory(at: fixture.newDefault, withIntermediateDirectories: true)
+        try Data("unfinished".utf8).write(to: fixture.newDefault.appending(path: name))
+        try fixture.writeLegacy(name, "old\n")
+
+        AppSettings(defaults: fixture.defaults, home: fixture.home).migrateLegacyTelemetryFolder()
+
+        XCTAssertFalse(fixture.defaults.bool(forKey: "telemetryFolderMigrated"))
+    }
+
+    @MainActor
     func testCustomTelemetryDirectoryMeansNoMigration() throws {
         let fixture = try TelemetryFolderFixture()
         defer { fixture.cleanUp() }
