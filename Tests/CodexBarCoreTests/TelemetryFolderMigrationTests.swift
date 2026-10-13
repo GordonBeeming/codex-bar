@@ -15,6 +15,25 @@ private final class UnreadableFileManager: FileManager, @unchecked Sendable {
     }
 }
 
+/// Fails the rename that marks an append as done, and optionally the delete that would follow it.
+private final class UnmarkableFileManager: FileManager, @unchecked Sendable {
+    let failsDeletes: Bool
+    init(failsDeletes: Bool) {
+        self.failsDeletes = failsDeletes
+        super.init()
+    }
+    override func moveItem(at srcURL: URL, to dstURL: URL) throws {
+        if dstURL.pathExtension == "migrated" {
+            throw CocoaError(.fileWriteFileExists, userInfo: [NSFilePathErrorKey: dstURL.path])
+        }
+        try super.moveItem(at: srcURL, to: dstURL)
+    }
+    override func removeItem(at URL: URL) throws {
+        if failsDeletes { throw CocoaError(.fileWriteNoPermission, userInfo: [NSFilePathErrorKey: URL.path]) }
+        try super.removeItem(at: URL)
+    }
+}
+
 final class TelemetryFolderMigrationTests: XCTestCase {
     private var home: URL!
     private var legacy: URL!
@@ -176,6 +195,51 @@ final class TelemetryFolderMigrationTests: XCTestCase {
         XCTAssertEqual(TelemetryFolderMigration(home: home).run(), [])
 
         XCTAssertEqual(try read(name, in: destination), "old\n")
+        XCTAssertFalse(FileManager.default.fileExists(atPath: legacy.path))
+    }
+
+    func testDirectoriesAndLinksNamedLikeLeftoversAreReportedAndNeverRemoved() throws {
+        let name = "codexbar-metrics-2026-10-11.jsonl"
+        try write("inside.txt", "keep", in: legacy.appending(path: "\(name).migrated", directoryHint: .isDirectory))
+        let outside = home.appending(path: "outside.jsonl")
+        try Data("secret\n".utf8).write(to: outside)
+        try FileManager.default.createSymbolicLink(at: legacy.appending(path: "\(name).merging"), withDestinationURL: outside)
+        let migration = TelemetryFolderMigration(home: home)
+
+        XCTAssertFalse(migration.hasPendingFiles())
+        XCTAssertEqual(migration.run().count, 2)
+
+        XCTAssertEqual(try read("inside.txt", in: legacy.appending(path: "\(name).migrated", directoryHint: .isDirectory)), "keep")
+        XCTAssertNotNil(try? FileManager.default.destinationOfSymbolicLink(atPath: legacy.appending(path: "\(name).merging").path))
+        XCTAssertEqual(try String(contentsOf: outside, encoding: .utf8), "secret\n")
+        XCTAssertFalse(FileManager.default.fileExists(atPath: destination.path))
+    }
+
+    func testFailedMigratedRenameAfterAppendFallsBackToDeletingTheSource() throws {
+        let name = "codexbar-metrics-2026-10-11.jsonl"
+        try write(name, "new\n", in: destination)
+        try write(name, "old\n", in: legacy)
+
+        XCTAssertEqual(TelemetryFolderMigration(home: home, fileManager: UnmarkableFileManager(failsDeletes: false)).run(), [])
+        _ = TelemetryFolderMigration(home: home).run()
+
+        XCTAssertEqual(try read(name, in: destination), "new\nold\n")
+        XCTAssertFalse(FileManager.default.fileExists(atPath: legacy.path))
+    }
+
+    func testSourceThatCantBeMarkedOrDeletedAfterAppendIsNeverAppendedAgain() throws {
+        let name = "codexbar-metrics-2026-10-11.jsonl"
+        try write(name, "new\n", in: destination)
+        try write(name, "old\n", in: legacy)
+
+        let stuck = TelemetryFolderMigration(home: home, fileManager: UnmarkableFileManager(failsDeletes: true))
+        XCTAssertEqual(stuck.run().count, 1)
+        XCTAssertFalse(stuck.hasPendingFiles())
+        XCTAssertTrue(FileManager.default.fileExists(atPath: legacy.appending(path: "\(name).merging-done").path))
+
+        XCTAssertEqual(TelemetryFolderMigration(home: home).run(), [])
+
+        XCTAssertEqual(try read(name, in: destination), "new\nold\n")
         XCTAssertFalse(FileManager.default.fileExists(atPath: legacy.path))
     }
 
