@@ -156,6 +156,42 @@ final class TelemetryFolderMigrationTests: XCTestCase {
         XCTAssertEqual(try read(name, in: destination), "new\nold\n")
     }
 
+    func testLeftoverMergingFileIsMergedAndCleanedUp() throws {
+        let name = "codexbar-metrics-2026-10-11.jsonl"
+        try write(name, "new\n", in: destination)
+        try write("\(name).merging", "old\n", in: legacy)
+        let migration = TelemetryFolderMigration(home: home)
+        XCTAssertTrue(migration.hasPendingFiles())
+
+        XCTAssertEqual(migration.run(), [])
+
+        XCTAssertEqual(try read(name, in: destination), "new\nold\n")
+        XCTAssertFalse(FileManager.default.fileExists(atPath: legacy.path))
+    }
+
+    func testLeftoverMergingFileWithoutDestinationIsMovedIntoPlace() throws {
+        let name = "codexbar-logs-2026-10-11.jsonl"
+        try write("\(name).merging", "old\n", in: legacy)
+
+        XCTAssertEqual(TelemetryFolderMigration(home: home).run(), [])
+
+        XCTAssertEqual(try read(name, in: destination), "old\n")
+        XCTAssertFalse(FileManager.default.fileExists(atPath: legacy.path))
+    }
+
+    func testLeftoverMigratedFileIsOnlyDeleted() throws {
+        let name = "codexbar-metrics-2026-10-11.jsonl"
+        try write(name, "new\n", in: destination)
+        try write("\(name).migrated", "old\n", in: legacy)
+        let migration = TelemetryFolderMigration(home: home)
+        XCTAssertFalse(migration.hasPendingFiles())
+
+        XCTAssertEqual(migration.run(), [])
+
+        XCTAssertEqual(try read(name, in: destination), "new\n")
+        XCTAssertFalse(FileManager.default.fileExists(atPath: legacy.path))
+    }
+
     func testUnreadableLegacyFolderCountsAsPendingSoItIsRetried() throws {
         try write("codexbar-metrics-2026-10-11.jsonl", "m\n", in: legacy)
         let migration = TelemetryFolderMigration(home: home, fileManager: UnreadableFileManager())

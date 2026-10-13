@@ -99,6 +99,21 @@ final class AppSettingsTests: XCTestCase {
     }
 
     @MainActor
+    func testMigrationKeepsRetryingWhileAnInterruptedMergeRemains() throws {
+        let fixture = try TelemetryFolderFixture()
+        defer { fixture.cleanUp() }
+        let name = "codexbar-metrics-2026-10-11.jsonl"
+        try FileManager.default.createDirectory(at: fixture.newDefault, withIntermediateDirectories: true)
+        try Data("unfinished".utf8).write(to: fixture.newDefault.appending(path: name))
+        try fixture.writeLegacy("\(name).merging", "old\n")
+
+        AppSettings(defaults: fixture.defaults, home: fixture.home).migrateLegacyTelemetryFolder()
+
+        XCTAssertFalse(fixture.defaults.bool(forKey: "telemetryFolderMigrated"))
+        XCTAssertEqual(try fixture.read(fixture.legacy, "\(name).merging"), "old\n")
+    }
+
+    @MainActor
     func testMigrationKeepsRetryingWhileAnEligibleFileRemains() throws {
         let fixture = try TelemetryFolderFixture()
         defer { fixture.cleanUp() }
