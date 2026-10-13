@@ -56,7 +56,7 @@ Open **Settings…** from the dropdown:
 - **Pace flame** — show a flame beside the menu-bar percentage when usage is ahead of a steady pace through a window.
 - **⛽ Fuel tank mode** — flip every percentage and bar from *used* to *remaining*. Instead of a limit filling from 0 → 100% as you burn through it, it starts full and drains toward empty like a fuel gauge. It's purely cosmetic: colours, the pace flame, and the steady-pace marker still track real usage, so a nearly-empty tank still turns red.
 - **Celebrations** — choose full-screen reactions for session resets, weekly resets, and crossing the weekly pace line, or turn them off individually.
-- **Telemetry** — off by default. Record OTLP JSON to `~/Documents/CodexBar Telemetry`, choose another folder, or open it in Finder. Capture every five minutes and retain 90 days by default; both are configurable. `codexbar://telemetry` links can change these after you confirm. See the [telemetry format and coverage](docs/telemetry.md).
+- **Telemetry** — off by default. Record OTLP JSON to `~/Library/Application Support/CodexBar/Telemetry`, choose another folder, or open it in Finder. Capture every five minutes and retain 90 days by default; both are configurable. `codexbar://telemetry` links can change these after you confirm. See the [telemetry format and coverage](docs/telemetry.md).
 - **Launch at login** — on by default for an installed app.
 
 ## How it works

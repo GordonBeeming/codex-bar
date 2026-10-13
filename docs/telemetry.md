@@ -4,7 +4,7 @@ CodexBar's telemetry follows the [Bar Telemetry Spec v1](https://github.com/Gord
 
 ## Turning it on
 
-Enable **Record telemetry to disk** in Settings. Files go to `~/Documents/CodexBar Telemetry` unless you choose another folder. CodexBar captures when recording starts and then every five minutes by default (1 to 1,440). Retention is 90 days by default (1 to 3,650, or unlimited). Reset-credit changes are recorded as soon as a usage poll sees them. Capture runs in the background from launch, including launch at login. It doesn't run during sleep or while CodexBar is closed, and missed captures aren't backfilled.
+Enable **Record telemetry to disk** in Settings. Files go to `~/Library/Application Support/CodexBar/Telemetry` unless you choose another folder. Recordings from earlier versions that used `~/Documents/CodexBar Telemetry` move over on first launch. CodexBar captures when recording starts and then every five minutes by default (1 to 1,440). Retention is 90 days by default (1 to 3,650, or unlimited). Reset-credit changes are recorded as soon as a usage poll sees them. Capture runs in the background from launch, including launch at login. It doesn't run during sleep or while CodexBar is closed, and missed captures aren't backfilled.
 
 In Settings, **Apply telemetry settings** saves the interval, retention and folder.
 

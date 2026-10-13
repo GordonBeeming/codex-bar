@@ -1,6 +1,7 @@
 import CodexBarCore
 import Foundation
 import Observation
+import OSLog
 
 enum MenuBarPercentageSelection: Hashable {
     case highest
@@ -50,6 +51,7 @@ final class AppSettings {
         static let telemetryIntervalMinutes = "telemetryIntervalMinutes"
         static let telemetryRetentionDays = "telemetryRetentionDays"
         static let telemetryDirectory = "telemetryDirectory"
+        static let telemetryFolderMigrated = "telemetryFolderMigrated"
 
         static func celebrationEnabled(_ trigger: CelebrationTrigger) -> String {
             "celebration.\(trigger.rawValue).enabled"
@@ -61,6 +63,9 @@ final class AppSettings {
     }
 
     private let defaults: UserDefaults
+    private let home: URL
+    private let usesDefaultTelemetryDirectory: Bool
+    private let logger = Logger(subsystem: "com.gordonbeeming.CodexBar", category: "Telemetry")
     private var storedTelemetryIntervalMinutes: Int
     private var storedTelemetryRetentionDays: Int
 
@@ -171,8 +176,28 @@ final class AppSettings {
         )
     }
 
-    init(defaults: UserDefaults = .standard) {
+    /// Moves files out of the old Documents default. Call once at launch, before telemetry starts writing.
+    func migrateLegacyTelemetryFolder() {
+        // The flag keeps later launches from touching Documents at all, even when the old folder stays because it
+        // holds files that aren't ours.
+        guard usesDefaultTelemetryDirectory, !defaults.bool(forKey: Keys.telemetryFolderMigrated) else { return }
+        let migration = TelemetryFolderMigration(home: home)
+        for warning in migration.run() {
+            logger.error("Telemetry folder migration: \(warning, privacy: .public)")
+        }
+        if !migration.hasPendingFiles() { defaults.set(true, forKey: Keys.telemetryFolderMigrated) }
+    }
+
+    init(defaults: UserDefaults = .standard, home: URL = FileManager.default.homeDirectoryForCurrentUser) {
         self.defaults = defaults
+        self.home = home
+        // Read before anything registers a default: only a stored value means the user chose a folder, and a stored
+        // copy of the old default means they picked "Use default" while it pointed at Documents.
+        let storedDirectory = defaults.string(forKey: Keys.telemetryDirectory).flatMap { $0.hasPrefix("/") ? $0 : nil }
+        let legacyPath = TelemetryConfiguration.legacyDefaultDirectory(home: home).standardizedFileURL.path
+        let storedIsLegacy = storedDirectory.map { URL(fileURLWithPath: $0).standardizedFileURL.path == legacyPath } ?? false
+        usesDefaultTelemetryDirectory = storedDirectory == nil || storedIsLegacy
+        if storedIsLegacy { defaults.removeObject(forKey: Keys.telemetryDirectory) }
         var registrations: [String: Any] = [
             Keys.useDefaultSeverity: true,
             Keys.warningThresholdPercent: 75.0,
@@ -183,8 +208,7 @@ final class AppSettings {
             Keys.celebrationsEnabled: false,
             Keys.telemetryEnabled: false,
             Keys.telemetryIntervalMinutes: 5,
-            Keys.telemetryRetentionDays: 90,
-            Keys.telemetryDirectory: TelemetryConfiguration.defaultDirectory.path
+            Keys.telemetryRetentionDays: 90
         ]
         for trigger in CelebrationTrigger.allCases {
             registrations[Keys.celebrationEnabled(trigger)] = true
@@ -196,9 +220,8 @@ final class AppSettings {
         telemetryEnabled = defaults.bool(forKey: Keys.telemetryEnabled)
         storedTelemetryIntervalMinutes = min(max(defaults.integer(forKey: Keys.telemetryIntervalMinutes), 1), 1_440)
         storedTelemetryRetentionDays = TelemetryConfiguration.normalizedRetentionDays(defaults.integer(forKey: Keys.telemetryRetentionDays))
-        telemetryDirectory = defaults.string(forKey: Keys.telemetryDirectory).flatMap {
-            $0.hasPrefix("/") ? $0 : nil
-        } ?? TelemetryConfiguration.defaultDirectory.path
+        telemetryDirectory = (storedIsLegacy ? nil : storedDirectory)
+            ?? TelemetryConfiguration.defaultDirectory(home: home).path
         menuBarPercentageSelection = MenuBarPercentageSelection(
             rawValue: defaults.string(forKey: Keys.menuBarPercentageSelection)
         )
