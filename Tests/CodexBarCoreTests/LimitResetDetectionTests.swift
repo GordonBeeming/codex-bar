@@ -33,10 +33,23 @@ final class LimitResetDetectionTests: XCTestCase {
     func testAnEarlyResetWithUsageAlreadyBackCountsWhenAFullWindowStarts() {
         // Usage went from 6% to 1% (a request landed straight after the reset), too small a
         // drop for the usage check on its own, but a full fresh Window lies ahead.
+        // The old Window had five days left, so the two-day jump stays under half a Window
+        // and only the full-Window check can catch it.
         let now: TimeInterval = 1_792_000_000
         XCTAssertTrue(BarEvents.didReset(
-            from: observed(6, resetsAt: now + 2 * 86_400),
+            from: observed(6, resetsAt: now + 5 * 86_400),
             to: limit(1, resetsAt: now + 7 * 86_400),
+            now: at(now)
+        ))
+    }
+
+    func testASmallUsageDipWithoutAFullWindowAheadIsNotAReset() {
+        // The same two-day jump and 6% to 1% dip, but the new reset time is only three days
+        // out, so no fresh Window started.
+        let now: TimeInterval = 1_792_000_000
+        XCTAssertFalse(BarEvents.didReset(
+            from: observed(6, resetsAt: now + 1 * 86_400),
+            to: limit(1, resetsAt: now + 3 * 86_400),
             now: at(now)
         ))
     }
