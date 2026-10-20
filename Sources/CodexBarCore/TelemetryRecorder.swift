@@ -5,6 +5,10 @@ struct TelemetryState: Codable, Sendable, Equatable {
     var scan: SessionScanState?
     /// `nil` until the first successful usage read since tracking started.
     var limits: [String: ObservedLimit]?
+    /// The account (or plan) `limits` were observed on. Limit IDs only name the bucket and
+    /// Window, so another account's Limits must not be diffed against these. Nil for state
+    /// saved before this was recorded, which then belongs to whichever account is current.
+    var limitsScope: String?
     var perks: ObservedPerks?
     /// `false` from a new baseline until `bar.tracking.started` is written. The baseline is
     /// kept meanwhile, so a failed write delays the event without losing tokens.
@@ -87,10 +91,20 @@ public actor TelemetryRecorder {
         if progress != loadState() { try save(progress) }
 
         var limits = current.limits
+        var limitsScope = current.limitsScope
         if let result {
             let barLimits = BarLimit.limits(from: result)
-            events += BarEvents.limitEvents(previous: current.limits, current: barLimits)
-            limits = BarEvents.observed(barLimits)
+            let resultScope = result.accountId ?? planType
+            let switchedAccount = resultScope != nil && current.limitsScope != nil && resultScope != current.limitsScope
+            if switchedAccount {
+                // Another account's Windows aren't a continuation of these: start a new
+                // baseline instead of reading the difference as resets.
+                limits = BarEvents.observed(barLimits)
+            } else {
+                events += BarEvents.limitEvents(previous: current.limits, current: barLimits, now: date)
+                limits = BarEvents.observed(barLimits)
+            }
+            limitsScope = resultScope ?? current.limitsScope
         }
 
         let scope = result?.accountId ?? planType ?? dailyAccountScope
@@ -116,6 +130,7 @@ public actor TelemetryRecorder {
         // means a failed write re-emits them on the next capture instead of losing them.
         var saved = loadState()
         saved.limits = limits
+        saved.limitsScope = limitsScope
         if saved.startAnnounced == false { saved.startAnnounced = true }
         try save(saved)
         for bucket in changedBuckets ?? [] { dailyBuckets[bucket.startDate] = bucket.tokens }

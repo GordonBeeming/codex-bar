@@ -71,7 +71,7 @@ enum BarEvents {
 
     /// Events for every Limit that appeared, reset, or disappeared since `previous`.
     /// `previous == nil` means nothing has been seen since tracking started, so every Limit appears.
-    static func limitEvents(previous: [String: ObservedLimit]?, current: [BarLimit]) -> [OTLPTelemetryEncoder.Event] {
+    static func limitEvents(previous: [String: ObservedLimit]?, current: [BarLimit], now: Date) -> [OTLPTelemetryEncoder.Event] {
         let previous = previous ?? [:]
         var events: [OTLPTelemetryEncoder.Event] = []
         for limit in current {
@@ -79,7 +79,7 @@ enum BarEvents {
                 events.append(.init(name: "bar.limit.appeared", attributes: limit.attributes))
                 continue
             }
-            if didReset(from: before, to: limit) {
+            if didReset(from: before, to: limit, now: now) {
                 var attributes = limit.attributes + [.init("limit.utilization.last", before.utilization)]
                 if let next = limit.resetsAt { attributes.append(.init("limit.resets_at.next", Int(next))) }
                 events.append(.init(name: "bar.limit.reset", attributes: attributes))
@@ -94,14 +94,44 @@ enum BarEvents {
         return events
     }
 
-    /// A rolled-over window ends roughly a whole window later than the old one did. Half a
-    /// window is far beyond the few seconds Codex's reset time drifts between reads.
-    static func didReset(from before: ObservedLimit, to limit: BarLimit) -> Bool {
-        if let old = before.resetsAt, let new = limit.resetsAt {
-            let threshold = limit.windowMinutes.map { Double($0) * 30 } ?? 3_600
-            return new - old >= threshold
+    /// More than Codex's reset time drifts between reads, and more than a Window that hasn't
+    /// started yet creeps forward per poll (its reset time is always a full Window from now).
+    static let resetJumpTolerance: TimeInterval = 3_600
+
+    /// A Window that runs to its end comes back ending roughly a whole Window later, so a
+    /// jump of half a Window is a reset. Codex also resets a Window early, days before its
+    /// end, and then the reset time only moves by what was left. Any jump past the drift
+    /// tolerance counts as well when usage dropped or a full fresh Window now lies ahead.
+    static func didReset(from before: ObservedLimit, to limit: BarLimit, now: Date) -> Bool {
+        guard let old = before.resetsAt, let new = limit.resetsAt else {
+            return usageDidReset(from: before.utilization, to: limit.utilization)
         }
-        return usageDidReset(from: before.utilization, to: limit.utilization)
+        let jump = new - old
+        // A Window not started yet floats a full Window ahead of every poll, so after a long
+        // gap its reset time jumps as far as a real rollover. With no usage either side there
+        // is nothing to tell them apart, and an unused Window resetting loses nothing.
+        if before.utilization == 0 && limit.utilization == 0 {
+            return false
+        }
+        if let minutes = limit.windowMinutes, jump >= Double(minutes) * 30 {
+            return true
+        }
+        if limit.windowMinutes == nil, jump >= resetJumpTolerance {
+            return true
+        }
+        guard jump > resetJumpTolerance else {
+            return false
+        }
+        if usageDidReset(from: before.utilization, to: limit.utilization) {
+            return true
+        }
+        // A full Window ahead alone could still be a floating Window; usage going down is
+        // what tells a real reset apart.
+        guard let minutes = limit.windowMinutes, limit.utilization < before.utilization else {
+            return false
+        }
+        let window = Double(minutes) * 60
+        return abs(new - now.timeIntervalSince1970 - window) <= resetJumpTolerance
     }
 
     static func perkAttributes(id: String?, expiresAt: TimeInterval?, quantity: Int? = nil) -> [OTLPTelemetryEncoder.Attribute] {
