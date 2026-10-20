@@ -81,6 +81,17 @@ final class LimitResetDetectionTests: XCTestCase {
         ))
     }
 
+    func testAnUnusedWindowNotStartedYetAcrossALongGapIsNotAReset() {
+        // Four days without a poll: the floating reset time jumped more than half a Window,
+        // but usage stayed at zero, so nothing reset.
+        let now: TimeInterval = 1_792_000_000
+        XCTAssertFalse(BarEvents.didReset(
+            from: observed(0, resetsAt: now - 4 * 86_400 + 604_800),
+            to: limit(0, resetsAt: now + 604_800),
+            now: at(now)
+        ))
+    }
+
     func testAUsageDropWithoutTheResetTimeMovingIsNotAReset() {
         let now: TimeInterval = 1_792_000_000
         XCTAssertFalse(BarEvents.didReset(from: observed(40, resetsAt: now + 86_400), to: limit(0, resetsAt: now + 86_400), now: at(now)))

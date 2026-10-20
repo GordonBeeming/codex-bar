@@ -107,6 +107,12 @@ enum BarEvents {
             return usageDidReset(from: before.utilization, to: limit.utilization)
         }
         let jump = new - old
+        // A Window not started yet floats a full Window ahead of every poll, so after a long
+        // gap its reset time jumps as far as a real rollover. With no usage either side there
+        // is nothing to tell them apart, and an unused Window resetting loses nothing.
+        if before.utilization == 0 && limit.utilization == 0 {
+            return false
+        }
         if let minutes = limit.windowMinutes, jump >= Double(minutes) * 30 {
             return true
         }
@@ -119,9 +125,8 @@ enum BarEvents {
         if usageDidReset(from: before.utilization, to: limit.utilization) {
             return true
         }
-        // A Window not started yet also reads as a full Window ahead, and after a poll gap
-        // its reset time can jump past the tolerance; usage going down is what tells a real
-        // reset apart. An unused Window resetting can't be told apart, and loses nothing.
+        // A full Window ahead alone could still be a floating Window; usage going down is
+        // what tells a real reset apart.
         guard let minutes = limit.windowMinutes, limit.utilization < before.utilization else {
             return false
         }

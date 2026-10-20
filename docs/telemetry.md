@@ -28,7 +28,14 @@ Every window in every bucket that `account/rateLimits/read` reports becomes a Li
 - `limit.name` is the name the menu shows (`Weekly`, `Session (5h)`). Buckets other than the default `codex` one get the bucket's name added, as in `Weekly · Gpt Spark`.
 - Don't count on a five-hour window. Some plans report only the weekly one.
 
-`bar.limit.reset` fires when a Limit's reset time moves forward by at least half a window. When Codex gives no reset time, it fires when usage drops sharply instead (the same rule the celebrations use).
+`bar.limit.reset` fires when a Limit's Window rolls over:
+
+- **A Window that ran to its end:** the reset time moves forward by at least half a Window.
+- **An early reset:** Codex can reset a Window days before its reset time, and then the reset time only moves by what was left. A move of more than an hour also counts when usage drops sharply (the same rule the celebrations use), or when usage goes down and the new reset time is a full Window away.
+- **Never when usage is 0% both before and after.** A Window nobody has used yet floats a full Window ahead of each read, so after a long gap it can look like a rollover.
+- **When Codex gives no reset time:** it fires when usage drops sharply.
+
+Switching Codex accounts starts a new baseline instead of firing, because another account's Window isn't a continuation of the last one.
 
 ### Tokens
 

@@ -96,6 +96,20 @@ final class BarTelemetryTests: XCTestCase {
         XCTAssertEqual(try eventNames([lines[1]]).filter { $0 == "bar.limit.appeared" }.count, 2)
     }
 
+    func testSwitchingAccountsStartsANewLimitBaselineInsteadOfLoggingAReset() async throws {
+        // Account b has less usage and a reset time two days later than account a's: compared
+        // against a's observation, that reads as an early reset, though nothing reset.
+        let sink = RecordingSink()
+        let start = Date(timeIntervalSince1970: 1_792_000_000)
+        let recorder = recorder(sink)
+        try await recorder.recordSample(result: try weekly(40, resetsAt: 1_792_000_000 + 3 * 86_400), planType: nil, observedAt: start, at: start)
+        let otherAccount = try result(#"{"accountId":"b","rateLimitsByLimitId":{"codex":{"secondary":{"usedPercent":0,"windowDurationMins":10080,"resetsAt":\#(1_792_000_000 + 7 * 86_400)}}}}"#)
+        try await recorder.recordSample(result: otherAccount, planType: nil, observedAt: start, at: start)
+
+        let names = try eventNames(await sink.lines).filter { $0.hasPrefix("bar.limit.") }
+        XCTAssertEqual(names, ["bar.limit.appeared"])
+    }
+
     func testLimitResetAndDisappearanceEventsSurviveARelaunch() async throws {
         let sink = RecordingSink()
         let start = Date(timeIntervalSince1970: 1_799_000_000)
