@@ -89,7 +89,7 @@ public actor TelemetryRecorder {
         var limits = current.limits
         if let result {
             let barLimits = BarLimit.limits(from: result)
-            events += BarEvents.limitEvents(previous: current.limits, current: barLimits)
+            events += BarEvents.limitEvents(previous: current.limits, current: barLimits, now: date)
             limits = BarEvents.observed(barLimits)
         }
 
