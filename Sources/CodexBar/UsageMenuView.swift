@@ -37,6 +37,9 @@ struct UsageMenuView: View {
         }
         .padding()
         .frame(width: 320)
+        // MenuBarExtra keeps the window height it first measured, so without this the
+        // popover never shrinks when a Window disappears and leaves empty space below.
+        .fixedSize(horizontal: false, vertical: true)
         .onAppear {
             now = Date()
             model.refreshIfStale()
